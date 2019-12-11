@@ -1,13 +1,9 @@
 // from https://raw.githubusercontent.com/DennisSc/PPS-ntp-server/master/src/GPS.cpp
 
-#include <HardwareSerial.h>
+#include <Arduino.h>
 #include "DateTime.h"
 #include "GPS.h"
 
-// GPS init
-#define RXPin  13
-#define TXPin  15
-#define GPSBaud 115200
 #define gpsTimeOffset 2 //centisecond raw offset, compared to known-good stratum 1 server
 
 #define GPS_CODE_ZDA "GPZDA"
@@ -20,8 +16,6 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
-  ltzh_ = newLtzh_;
-  ltzn_ = newLtzn_;
 }
 
 void GPSDateTime::time(String time) {
@@ -58,104 +52,6 @@ void GPSDateTime::year(String year) {
   newYear_ = year.toInt();
 }
 uint16_t GPSDateTime::year(void) { return year_; };
-
-void GPSDateTime::ltzh(String ltzh) {
-  newLtzh_ = ltzh.toInt();
-}
-uint16_t GPSDateTime::ltzh(void) { return ltzh_; };
-
-void GPSDateTime::ltzn(String ltzn) {
-  newLtzn_ = ltzn.toInt();
-}
-uint16_t GPSDateTime::ltzn(void) { return ltzn_; };
-
-
-
-
-/**
- * Send message
- * @param msg uint8_t array
- * @param len uint8_t
- */
-void msendMessage(uint8_t *msg, uint8_t len, HardwareSerial port) 
-{
-  int i = 0;
-  for (i = 0; i < len; i++) 
-  {
-    port.write(msg[i]);
-    // Serial.print(msg[i], HEX);
-  }
-  port.println();
-}
-
-
-/**
- * Is acknowledge right from message?
- * @param  msg uint8_t array
- * @return     bool
- */
-bool getAck(uint8_t *msg, HardwareSerial port) 
-{
-  uint8_t b;
-  uint8_t ackByteID = 0;
-  uint8_t ackPacket[10];
-  unsigned long startTime = millis();
-  Serial.print(" * Reading ACK response: ");
-
-  // Construct the expected ACK packet
-  ackPacket[0] = 0xB5;  // header
-  ackPacket[1] = 0x62;  // header
-  ackPacket[2] = 0x05;  // class
-  ackPacket[3] = 0x01;  // id
-  ackPacket[4] = 0x02;  // length
-  ackPacket[5] = 0x00;
-  ackPacket[6] = msg[2];  // ACK class
-  ackPacket[7] = msg[3];  // ACK id
-  ackPacket[8] = 0;   // CK_A
-  ackPacket[9] = 0;   // CK_B
-
-  // Calculate the checksums
-  uint8_t i = 2;
-  for (i = 2; i < 8; i++)
-  {
-    ackPacket[8] = ackPacket[8] + ackPacket[i];
-    ackPacket[9] = ackPacket[9] + ackPacket[8];
-  }
-
-  while (1) 
-  {
-    // Test for success
-    if (ackByteID > 9) 
-    {
-      // All packets in order!
-      Serial.println(" (SUCCESS!)");
-      return true;
-    }
-
-    // Timeout if no valid response in 3 seconds
-    if (millis() - startTime > 3000) 
-    {
-      Serial.println(" (FAILED!)");
-      return false;
-    }
-
-    // Make sure data is available to read
-    if (port.available()) 
-    {
-      b = port.read();
-
-      // Check that bytes arrive in sequence as per expected ACK packet
-      if (b == ackPacket[ackByteID]) 
-      {
-        ackByteID++;
-        //Serial.print(b, HEX);
-      } else 
-      {
-        ackByteID = 0;  // Reset and look again, invalid order
-      }
-    }
-  }
-}
 
 /**
  * Decode NMEA line to date and time
@@ -204,12 +100,8 @@ bool GPSDateTime::decode() {
       case 4: // year
         this->year(tmp);
         break;
-      case 5:
-        this->ltzh(tmp);
-        break;
+      case 5: // timezone fields are ignored
       case 6:
-        this->ltzn(tmp);
-        break;
       default:
         break;
     }

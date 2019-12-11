@@ -16,21 +16,15 @@ class GPSDateTime {
   uint16_t month(void);
   void year(String year);
   uint16_t year(void);
-  void ltzh(String ltzh);
-  uint16_t ltzh(void);
-  void ltzn(String ltzn);
-  uint16_t ltzn(void);
   DateTime GPSnow();
   bool decode();
 
  protected:
   uint32_t newTime_;
   uint16_t newYear_, newMonth_, newDay_;
-  uint16_t newLtzh_, newLtzn_;
 
   uint32_t time_;
   uint16_t year_, month_, day_;
-  uint16_t ltzh_, ltzn_;
 
   DateTime getZDA();
   
