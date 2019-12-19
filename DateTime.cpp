@@ -36,6 +36,7 @@ static long time2long(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
 // DateTime implementation - ignores time zones and DST changes
 // NOTE: also ignores leap seconds, see http://en.wikipedia.org/wiki/Leap_second
 
+// expects NTP timestamp
 DateTime::DateTime(uint32_t t, unsigned long microsfraction)
   : microsfraction_(microsfraction) {
   // bring to 2000 timestamp from 1900
@@ -133,7 +134,7 @@ DateTime::DateTime(
   // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
   switch (date[0]) {
     case 'J':
-      month_ = date[1] == 'a' ? 1 : (month_ = date[2] == 'n' ? 6 : 7);
+      month_ = date[1] == 'a' ? 1 : (date[2] == 'n' ? 6 : 7);
       break;
     case 'F':
       month_ = 2;
