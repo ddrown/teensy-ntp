@@ -1,5 +1,4 @@
-#ifndef GPS_H_
-#define GPS_H_
+#pragma once
 
 class GPSDateTime {
  public:
@@ -44,5 +43,3 @@ class GPSDateTime {
   String msg;
   DateTime now(void);
 };
-
-#endif // GPS_H_

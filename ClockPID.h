@@ -1,5 +1,4 @@
-#ifndef _ClockPID_
-#define _ClockPID_
+#pragma once
 
 #include <stdint.h>
 
@@ -57,5 +56,3 @@ class ClockPID_c {
 };
 
 extern ClockPID_c ClockPID;
-
-#endif

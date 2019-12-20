@@ -1,7 +1,6 @@
 // from https://raw.githubusercontent.com/DennisSc/PPS-ntp-server/master/src/DateTime.h
 
-#ifndef DATETIME_H_
-#define DATETIME_H_
+#pragma once
 
 #include "Arduino.h"
 
@@ -37,5 +36,3 @@ class DateTime {
  private:
    char chartime[9]; // for toString
 };
-
-#endif  // DATETIME_H_
