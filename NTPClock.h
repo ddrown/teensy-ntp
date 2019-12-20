@@ -10,6 +10,7 @@ class NTPClock {
     void setTime(uint32_t micros, uint32_t ntpTimestamp);
     uint8_t getTime(uint32_t *ntpTimestamp, uint32_t *ntpFractional);
     uint8_t getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFractional);
+    int64_t getOffset(uint32_t now, uint32_t ntpTimestamp, uint32_t ntpFractional);
     void setPpb(int32_t ppb);
 
   private:

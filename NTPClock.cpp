@@ -34,6 +34,21 @@ uint8_t NTPClock::getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFra
   return 1;
 }
 
+// returns + for local slower, - for local faster
+int64_t NTPClock::getOffset(uint32_t now, uint32_t ntpTimestamp, uint32_t ntpFractional) {
+  uint32_t localS, localFS;
+  if (getTime(now, &localS, &localFS) != 1) {
+    return 0;
+  }
+
+  int32_t diffS = ntpTimestamp - localS; // assumption: clocks are within 2^31s
+  int64_t diffFS = (int64_t)ntpFractional - localFS;
+  diffFS += diffS * 4294967296LL;
+
+  return diffFS;
+}
+
+// use + for local slower, - for local faster
 void NTPClock::setPpb(int32_t ppb) {
   ppb_ = ppb;
 }

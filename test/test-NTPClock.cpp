@@ -167,10 +167,24 @@ void test_realvalues() {
   TEST_ASSERT_EQUAL(44547, fractional);
 }
 
+void test_getoffset() {
+  NTPClock clock;
+
+  clock.setPpb(-668);
+  clock.setTime(838698, 3785790043);
+
+  TEST_ASSERT_EQUAL(-42949689453LL, clock.getOffset(120838782, 3785790153, 0));
+  TEST_ASSERT_EQUAL(-16493, clock.getOffset(120838782, 3785790163, 0));
+  TEST_ASSERT_EQUAL(-13624, clock.getOffset(121838782, 3785790164, 0));
+  TEST_ASSERT_EQUAL(-47416, clock.getOffset(220838856, 3785790263, 0));
+  TEST_ASSERT_EQUAL(-44547, clock.getOffset(221838856, 3785790264, 0));
+}
+
 void NTPClockTests() {
   RUN_TEST(test_settime);
   RUN_TEST(test_gettime);
   RUN_TEST(test_wraptime);
   RUN_TEST(test_setppb);
   RUN_TEST(test_realvalues);
+  RUN_TEST(test_getoffset);
 }
