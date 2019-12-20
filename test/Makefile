@@ -10,11 +10,13 @@ DEP=$(OBJ:%.o=%.d)
 
 LIBS=$(ARDUINOFAKEDIR)/build/src/libArduinoFake.so $(ARDUINOFAKEDIR)/build/external/unity/libunity.a
 
-all: .depend test
+all: test
 	LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./test
 
 clean:
 	rm -f *.o test .depend
+
+dep: .depend
 
 .depend: $(SRCS)
 	g++ $(INCLUDES) -MM $^ > ./.depend
@@ -33,4 +35,4 @@ test%.o: test%.cpp
 %.o: ../%.cpp
 	g++ -c $(INCLUDES) $(CXX_FLAGS) $<
 
-.PHONY: clean all
+.PHONY: clean all dep

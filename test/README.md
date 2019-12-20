@@ -10,4 +10,4 @@ cmake ..
 make
 ```
 
-To test: `make`
+To test: `make dep all`
