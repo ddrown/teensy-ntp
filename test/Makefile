@@ -16,17 +16,17 @@ all: $(BINS)
 	for i in $(BINS); do LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./$$i; done
 
 clean:
-	rm -f *.o test .depend
+	rm -f *.o $(BINS) .depend
 
 dep: $(SRCS)
 	g++ $(INCLUDES) -MM $^ > ./.depend
 
 -include .depend
 
-test-DateTime: test-DateTime.o $(OBJ) $(LIBS)
-test-GPS: test-GPS.o $(OBJ) $(LIBS)
-test-NTPClock: test-NTPClock.o $(OBJ) $(LIBS)
-test-ClockPID: test-ClockPID.o $(OBJ) $(LIBS)
+test-DateTime: test-DateTime.o DateTime.o $(LIBS)
+test-GPS: test-GPS.o DateTime.o GPS.o $(LIBS)
+test-NTPClock: test-NTPClock.o NTPClock.o $(LIBS)
+test-ClockPID: test-ClockPID.o ClockPID.o $(LIBS)
 
 $(BINS):
 	g++ $(CXX_FLAGS) -o $@ $^
