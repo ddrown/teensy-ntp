@@ -24,7 +24,7 @@ void ICACHE_RAM_ATTR handleInterrupt() {
 uint32_t compileTime;
 void setup() {
   DateTime compile = DateTime(__DATE__, __TIME__);
-  
+
   Serial.begin(BAUD_SERIAL);
   Serial.setRxBufferSize(RXBUFFERSIZE);
   // Move hardware serial to RX:GPIO13 TX:GPIO15
@@ -36,8 +36,8 @@ void setup() {
 
   pinMode(PPSPIN, INPUT);
   digitalWrite(PPSPIN, LOW);
-  attachInterrupt(digitalPinToInterrupt(PPSPIN), handleInterrupt, RISING);  
-  
+  attachInterrupt(digitalPinToInterrupt(PPSPIN), handleInterrupt, RISING);
+
   compileTime = compile.ntptime();
   localClock.setTime(micros(), compileTime);
   // allow for compile timezone to be 12 hours ahead
@@ -60,13 +60,15 @@ void loop() {
             ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), offset);
             localClock.setPpb(ClockPID.out() * 1000000000.0);
             double offsetHuman = offset / (double)4294967296.0;
+            logger.print(lastPPS);
+            logger.print(" ");
             logger.print(offsetHuman, 9);
             logger.print(" ");
             logger.print(ClockPID.d(), 9);
             logger.print(" ");
             logger.print(ClockPID.d_chi(), 9);
             logger.print(" ");
-            logger.println(ClockPID.out(), 9);
+            logger.println(localClock.getPpb());
           } else {
             localClock.setTime(lastPPS, gps.GPSnow().ntptime());
             ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), 0);
@@ -74,7 +76,6 @@ void loop() {
           }
           lastPPS = 0;
         }
-        logger.println("");
       }
     }
   }
