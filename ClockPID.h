@@ -21,7 +21,7 @@ extern "C" {
 class ClockPID_c {
   public:
     ClockPID_c() { count = 0; }
-    float add_sample(uint32_t timestamp, int32_t raw_offset, int64_t corrected_offset);
+    float add_sample(uint32_t timestamp, uint32_t realSecond, int64_t corrected_offset);
 
     float p() { return last_p; };
     float i() { return last_i; };
@@ -32,11 +32,12 @@ class ClockPID_c {
     float d_out() { return last_out_d; };
     float out() { return last_out; };
 
-    void reset_clock() { count = 0; } // TODO: change all timestamps to negative instead of throwing them away
+    void reset_clock() { count = 0; }
 
   private:
     uint32_t timestamps[NTPPID_MAX_COUNT]; // in microseconds
-    int32_t raw_offsets[NTPPID_MAX_COUNT]; // interval(remote) - interval(local), in microseconds
+    uint32_t realSeconds[NTPPID_MAX_COUNT]; // actual seconds
+    int32_t rawOffsets[NTPPID_MAX_COUNT]; // in microseconds
     int64_t corrected_offsets[NTPPID_MAX_COUNT]; // in fractional ntp seconds
 
     uint32_t count;
@@ -46,7 +47,7 @@ class ClockPID_c {
     float last_out_p, last_out_i, last_out_d, last_out;
 
     struct linear_result theil_sen(float avg_ts, float avg_out);
-    float chisq(struct linear_result lin);
+    float chisq(struct linear_result lin, uint32_t *timestampDurations);
     struct deriv_calc calculate_d();
     float calculate_i();
     float limit_500(float factor);

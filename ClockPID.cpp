@@ -57,7 +57,8 @@ struct linear_result ClockPID_c::theil_sen(float avg_ts, float avg_out) {
 
   for(uint32_t i = 0; i < (count - 1); i++) {
     for(uint32_t j = i+1; j < count; j++) {
-      slopes[slopes_count] = (raw_offsets[j] - raw_offsets[i]) / (float)(timestamps[j] - timestamps[i]);
+      uint32_t localDuration = timestamps[j] - timestamps[i];
+      slopes[slopes_count] = (rawOffsets[j] - rawOffsets[i]) / (float)(localDuration);
       slopes_count++;
     }
   }
@@ -75,28 +76,38 @@ struct linear_result ClockPID_c::theil_sen(float avg_ts, float avg_out) {
   return r;
 }
 
-float ClockPID_c::chisq(struct linear_result lin) {
+float ClockPID_c::chisq(struct linear_result lin, uint32_t *timestampDurations) {
   float chisq_r = 0;
 
   for(uint32_t i = 0; i < count; i++) {
-    float expected = timestamps[i]/1000.0*lin.a + lin.b/1000.0;
-    chisq_r += pow((raw_offsets[i]/1000.0 - expected), 2);
+    float expected = timestampDurations[i]*lin.a + lin.b;
+    chisq_r += pow(rawOffsets[i] - expected, 2);
   }
 
   return chisq_r;
 }
 
+// + for local slower, - for local faster
 struct deriv_calc ClockPID_c::calculate_d() {
   float avg_ts, avg_off;
   struct linear_result lin;
   struct deriv_calc d;
+  uint32_t timestampDurations[NTPPID_MAX_COUNT];
 
-  avg_ts = average(timestamps);
-  avg_off = average(raw_offsets);
+  rawOffsets[0] = 0;
+  timestampDurations[0] = 0;
+  for(uint32_t i = 1; i < count; i++) {
+    uint32_t remoteDuration = realSeconds[i] - realSeconds[0];
+    timestampDurations[i] = timestamps[i] - timestamps[0];
+    rawOffsets[i] = remoteDuration * 1000000 - timestampDurations[i];
+  }
+
+  avg_ts = average(timestampDurations);
+  avg_off = average(rawOffsets);
 
   lin = theil_sen(avg_ts, avg_off);
   d.d = lin.a;
-  d.d_chisq = chisq(lin);
+  d.d_chisq = chisq(lin, timestampDurations);
 
   return d;
 }
@@ -123,22 +134,21 @@ float ClockPID_c::limit_500(float factor) {
 void ClockPID_c::make_room() {
   for(uint32_t i = 0; i < count-1; i++) {
     timestamps[i] = timestamps[i+1];
-    raw_offsets[i] = raw_offsets[i+1];
+    realSeconds[i] = realSeconds[i+1];
     corrected_offsets[i] = corrected_offsets[i+1];
   }
 
   count--;
 }
 
-// warning: handle timestamp wraps in the upper layer by calling reset_clock
-float ClockPID_c::add_sample(uint32_t timestamp, int32_t raw_offset, int64_t corrected_offset) {
+float ClockPID_c::add_sample(uint32_t timestamp, uint32_t realSecond, int64_t corrected_offset) {
   last_p = corrected_offset / 4294967296.0;
  
   if(count == NTPPID_MAX_COUNT) {
     make_room();
   }
   timestamps[count] = timestamp;
-  raw_offsets[count] = raw_offset;
+  realSeconds[count] = realSecond;
   corrected_offsets[count] = corrected_offset;
   count++;
 
