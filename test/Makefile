@@ -16,7 +16,7 @@ all: test
 clean:
 	rm -f *.o test .depend
 
-dep:
+dep: $(SRCS)
 	g++ $(INCLUDES) -MM $^ > ./.depend
 
 include .depend
