@@ -1,9 +1,4 @@
-#include <ArduinoFake.h>
-#include <unity.h>
-#include <time.h>
-
-using namespace fakeit;
-
+#include "test.h"
 #include "ClockPID.h"
 
 void test_addsample() {
@@ -60,7 +55,9 @@ void test_realsamples() {
   TEST_ASSERT_FLOAT_WITHIN(1e-9, -0.714e-6, ClockPID.d());
 }
 
-void ClockPIDTests() {
+int main() {
+  UNITY_BEGIN();
   RUN_TEST(test_addsample);
   RUN_TEST(test_realsamples);
+  return UNITY_END();
 }

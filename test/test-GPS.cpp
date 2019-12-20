@@ -1,8 +1,4 @@
-#include <ArduinoFake.h>
-#include <unity.h>
-
-using namespace fakeit;
-
+#include "test.h"
 #include "DateTime.h"
 #include "GPS.h"
 
@@ -34,6 +30,8 @@ void test_decode() {
   TEST_ASSERT_EQUAL(1576552620, decoded.unixtime());
 }
 
-void gpsTests() {
+int main() {
+  UNITY_BEGIN();
   RUN_TEST(test_decode);
+  return UNITY_END();
 }

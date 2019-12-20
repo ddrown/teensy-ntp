@@ -5,13 +5,15 @@ CXX_FLAGS = -Wfatal-errors -Wall -Wshadow
 TESTSRC=$(wildcard *.cpp)
 APPSRC=$(wildcard ../*.cpp)
 SRCS=$(TESTSRC) $(APPSRC)
-OBJ=$(TESTSRC:%.cpp=%.o) $(APPSRC:../%.cpp=%.o)
+OBJ=$(APPSRC:../%.cpp=%.o)
+BINS=$(TESTSRC:%.cpp=%)
 DEP=$(OBJ:%.o=%.d)
 
 LIBS=$(ARDUINOFAKEDIR)/build/src/libArduinoFake.so $(ARDUINOFAKEDIR)/build/external/unity/libunity.a
 
-all: test
-	LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./test
+all: $(BINS)
+	echo ----------------------------------------------------------------
+	for i in $(BINS); do LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./$$i; done
 
 clean:
 	rm -f *.o test .depend
@@ -21,11 +23,13 @@ dep: $(SRCS)
 
 -include .depend
 
-test: $(OBJ) $(LIBS)
-	g++ -o $@ $^
+test-DateTime: test-DateTime.o $(OBJ) $(LIBS)
+test-GPS: test-GPS.o $(OBJ) $(LIBS)
+test-NTPClock: test-NTPClock.o $(OBJ) $(LIBS)
+test-ClockPID: test-ClockPID.o $(OBJ) $(LIBS)
 
-test.o: test.cpp
-	g++ -c $(INCLUDES) $(CXX_FLAGS) $<
+$(BINS):
+	g++ $(CXX_FLAGS) -o $@ $^
 
 test%.o: test%.cpp
 	g++ -c $(INCLUDES) $(CXX_FLAGS) $<

@@ -1,8 +1,4 @@
-#include <ArduinoFake.h>
-#include <unity.h>
-
-using namespace fakeit;
-
+#include "test.h"
 #include "DateTime.h"
 
 void test_ntpdate() {
@@ -41,8 +37,10 @@ void test_numberdate() {
   TEST_ASSERT_EQUAL(2085523200, feb2036.unixtime());
 }
 
-void DateTimeTests() {
+int main() {
+  UNITY_BEGIN();
   RUN_TEST(test_ntpdate);
   RUN_TEST(test_stringdate);
   RUN_TEST(test_numberdate);
+  return UNITY_END();
 }

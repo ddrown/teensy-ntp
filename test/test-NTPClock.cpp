@@ -1,9 +1,5 @@
-#include <ArduinoFake.h>
-#include <unity.h>
+#include "test.h"
 #include <time.h>
-
-using namespace fakeit;
-
 #include "NTPClock.h"
 
 void test_settime() {
@@ -180,11 +176,13 @@ void test_getoffset() {
   TEST_ASSERT_EQUAL(-44547, clock.getOffset(221838856, 3785790264, 0));
 }
 
-void NTPClockTests() {
+int main() {
+  UNITY_BEGIN();
   RUN_TEST(test_settime);
   RUN_TEST(test_gettime);
   RUN_TEST(test_wraptime);
   RUN_TEST(test_setppb);
   RUN_TEST(test_realvalues);
   RUN_TEST(test_getoffset);
+  return UNITY_END();
 }
