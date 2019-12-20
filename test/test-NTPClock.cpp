@@ -33,20 +33,20 @@ void test_gettime() {
   When(Method(ArduinoFake(), micros)).Return(1999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
-  // 999999/1000000*2^32 = 4294963001, rounding error
-  TEST_ASSERT_EQUAL(4294963000, fractional);
+  // 999999/1000000*2^32 = 4294963001
+  TEST_ASSERT_EQUAL(4294963001, fractional);
 
   When(Method(ArduinoFake(), micros)).Return(4000999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12349678, sec);
-  // 999999/1000000*2^32 = 4294963001, rounding error
-  TEST_ASSERT_EQUAL(4294963000, fractional);
+  // 999999/1000000*2^32 = 4294963001
+  TEST_ASSERT_EQUAL(4294963001, fractional);
 
   When(Method(ArduinoFake(), micros)).Return(4293999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12349971, sec);
-  // 999999/1000000*2^32 = 4294963001, rounding error
-  TEST_ASSERT_EQUAL(4294963000, fractional);
+  // 999999/1000000*2^32 = 4294963001
+  TEST_ASSERT_EQUAL(4294963001, fractional);
 }
 
 void test_wraptime() {
@@ -119,9 +119,58 @@ void test_setppb() {
   printf("getTime: %09ld ns\n", timespec_nsec(&before, &after));
 }
 
+void test_realvalues() {
+  NTPClock clock;
+  uint32_t sec = 0, fractional = 0;
+
+  clock.setPpb(-668);
+  clock.setTime(838698, 3785790043);
+
+  // 120838782-838698= 120000084
+  // 120000084 * (1-0.000000668) = 120000003.839943888
+  // 120000003.839943888 * 2^32 / 1000000 = 515396092012
+  // 515396092012 / 2^32 = 120
+  // 3785790043 + 120 = 3785790163
+  // 515396092012 % 2^32 = 16492, rounding error
+  TEST_ASSERT_EQUAL(1, clock.getTime(120838782, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785790163, sec);
+  TEST_ASSERT_EQUAL(16493, fractional);
+
+  // 121838782 - 120838782 = 1000000
+  // 1000000 * (1-0.000000668) = 999999.332000000
+  // 999999.332000000 * 2^32 / 1000000 = 4294964426
+  // 4294964426+16493 = 4294980919
+  // 4294980919 / 2^32 = 1
+  // 4294980919 % 2^32 = 13623, rounding error
+  TEST_ASSERT_EQUAL(1, clock.getTime(121838782, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785790164, sec);
+  TEST_ASSERT_EQUAL(13624, fractional);
+
+  // 220838856 - 121838782 = 99000074
+  // 99000074 * (1-0.000000668) = 99000007.867950568
+  // 99000007.867950568 * 2^32 / 1000000 = 425201796096
+  // 425201796096 + 13624 = 425201809720
+  // 425201809720 / 2^32 = 99
+  // 425201809720 % 2^32 = 47416
+  TEST_ASSERT_EQUAL(1, clock.getTime(220838856, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785790263, sec);
+  TEST_ASSERT_EQUAL(47416, fractional);
+
+  // 221838856 - 220838856 = 1000000
+  // 1000000 * (1-0.000000668) = 999999.332000000
+  // 999999.332000000 * 2^32 / 1000000 = 4294964426
+  // 4294964426 + 47416 = 4295011842
+  // 4295011842 / 2^32 = 1
+  // 4295011842 % 2^32 = 44546, rounding error
+  TEST_ASSERT_EQUAL(1, clock.getTime(221838856, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785790264, sec);
+  TEST_ASSERT_EQUAL(44547, fractional);
+}
+
 void NTPClockTests() {
   RUN_TEST(test_settime);
   RUN_TEST(test_gettime);
   RUN_TEST(test_wraptime);
   RUN_TEST(test_setppb);
+  RUN_TEST(test_realvalues);
 }
