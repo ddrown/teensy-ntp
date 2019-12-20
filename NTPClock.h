@@ -19,6 +19,6 @@ class NTPClock {
     union {
       uint32_t units[2];
       uint64_t whole;
-    } ntpTimestamp_;
+    } ntpTimestamp_, temp_;
     int32_t ppb_;
 };
