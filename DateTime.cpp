@@ -37,8 +37,7 @@ static long time2long(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
 // NOTE: also ignores leap seconds, see http://en.wikipedia.org/wiki/Leap_second
 
 // expects NTP timestamp
-DateTime::DateTime(uint32_t t, unsigned long microsfraction)
-  : microsfraction_(microsfraction) {
+DateTime::DateTime(uint32_t t) {
   // bring to 2000 timestamp from 1900
   t -= SECONDS_FROM_1900_TO_2000;
 
@@ -103,15 +102,13 @@ void DateTime::time(uint32_t t) {
 DateTime::DateTime(
   uint16_t year, uint16_t month,
   uint16_t day, uint16_t hour,
-  uint16_t minute, uint16_t second,
-  unsigned long microsfraction)
+  uint16_t minute, uint16_t second)
   : year_( (year >= 2000) ? year - 2000 : year),
     month_(month),
     day_(day),
     hour_(hour),
     minute_(minute),
-    second_(second),
-    microsfraction_(microsfraction) {}
+    second_(second) {}
 
 static uint16_t conv2d(const char *p) {
   uint16_t v = 0;
@@ -126,9 +123,7 @@ static uint16_t conv2d(const char *p) {
 // NOTE: using PSTR would further reduce the RAM footprint
 DateTime::DateTime(
   const char *date,
-  const char *time,
-  unsigned long microsfraction)
-  : microsfraction_(microsfraction) {
+  const char *time) {
   // sample input: date = "Dec 26 2009", time = "12:34:56"
   year_ = conv2d(date + 9);
   // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
@@ -189,48 +184,16 @@ String DateTime::toString(void) {
   return chartime;
 }
 
-static void padoutput(Stream *out, long value) {
-  if (value < 10)
-    out->print("00000");
-  else if (value < 100)
-    out->print("0000");
-  else if (value < 1000)
-    out->print("000");
-  else if (value < 10000)
-    out->print("00");
-  else if (value < 100000)
-    out->print("0");
-    
-  out->println(value);  
-}
-
 void DateTime::print(Stream *out) const {
-  long diff2 = microsfraction();
-  out->print(F("UNIX: "));
-  out->print(unixtime());
-  out->print(F(","));
-  padoutput(out, diff2);
-
-  out->print(F("NTP: "));
-  out->print(ntptime());
-  out->print(F(","));
-  padoutput(out, diff2);
-
-  out->print(F("DATE: "));
-  out->print(day());
-  out->print(F("."));
+  out->print(year());
+  out->print("-");
   out->print(month());
-  out->print(F("."));
-  out->println(year());
-
-  out->print(F("TIME: "));
+  out->print("-");
+  out->print(day());
+  out->print(" ");
   out->print(hour());
-  out->print(F(":"));
+  out->print(":");
   out->print(minute());
-  out->print(F(":"));
+  out->print(":");
   out->print(second());
-  out->print(F(","));
-  padoutput(out, diff2);
-  
-  out->println();
 }

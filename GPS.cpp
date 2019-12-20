@@ -34,10 +34,6 @@ uint16_t GPSDateTime::second() {
   return (time_ / 100) % 100;
 }
 
-uint32_t GPSDateTime::centisecond() {
-  return time_ % 100;
-}
-
 void GPSDateTime::day(String day) {
   newDay_ = day.toInt();
 }
@@ -151,6 +147,5 @@ bool GPSDateTime::decode() {
  * @return DateTime
  */
 DateTime GPSDateTime::GPSnow() {
-  return DateTime(this->year(), this->month(), this->day(),
-    this->hour(), this->minute(), this->second(), this->centisecond());
+  return DateTime(this->year(), this->month(), this->day(), this->hour(), this->minute(), this->second());
 }

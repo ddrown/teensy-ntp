@@ -9,7 +9,6 @@ class GPSDateTime {
   uint16_t hour();
   uint16_t minute();
   uint16_t second();
-  uint32_t centisecond();
   void day(String day);
   uint16_t day(void);
   void month(String month);
