@@ -19,7 +19,7 @@ clean:
 dep: $(SRCS)
 	g++ $(INCLUDES) -MM $^ > ./.depend
 
-include .depend
+-include .depend
 
 test: $(OBJ) $(LIBS)
 	g++ -o $@ $^
