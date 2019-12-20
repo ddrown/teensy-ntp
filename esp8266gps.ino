@@ -3,6 +3,7 @@
 #include "DateTime.h"
 #include "GPS.h"
 #include "NTPClock.h"
+#include "ClockPID.h"
 
 #define BAUD_SERIAL 115200
 #define BAUD_LOGGER 115200
@@ -39,7 +40,6 @@ void setup() {
   
   compileTime = compile.ntptime();
   localClock.setTime(micros(), compileTime);
-  localClock.setPpb(-668); // TODO: linear estimation
   // allow for compile timezone to be 12 hours ahead
   compileTime -= 12*60*60;
 }
@@ -55,13 +55,21 @@ void loop() {
         logger.println("");
       } else {
         if(lastPPS > 0) {
-          logger.println(lastPPS);
           if(settime) {
             int64_t offset = localClock.getOffset(lastPPS, gps.GPSnow().ntptime(), 0);
+            ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), offset);
+            localClock.setPpb(ClockPID.out() * 1000000000.0);
             double offsetHuman = offset / (double)4294967296.0;
-            logger.println(offsetHuman, 9);
+            logger.print(offsetHuman, 9);
+            logger.print(" ");
+            logger.print(ClockPID.d(), 9);
+            logger.print(" ");
+            logger.print(ClockPID.d_chi(), 9);
+            logger.print(" ");
+            logger.println(ClockPID.out(), 9);
           } else {
             localClock.setTime(lastPPS, gps.GPSnow().ntptime());
+            ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), 0);
             settime = 1;
           }
           lastPPS = 0;
