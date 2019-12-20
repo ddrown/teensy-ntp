@@ -57,18 +57,15 @@ void loop() {
         if(lastPPS > 0) {
           logger.println(lastPPS);
           if(settime) {
-            uint32_t sec, fractional;
-            localClock.getTime(lastPPS, &sec, &fractional);
-            logger.print(sec);
-            logger.print(".");
-            logger.println(fractional);
+            int64_t offset = localClock.getOffset(lastPPS, gps.GPSnow().ntptime(), 0);
+            double offsetHuman = offset / (double)4294967296.0;
+            logger.println(offsetHuman, 9);
           } else {
             localClock.setTime(lastPPS, gps.GPSnow().ntptime());
             settime = 1;
           }
           lastPPS = 0;
         }
-        logger.println(gps.GPSnow().ntptime());
         logger.println("");
       }
     }
