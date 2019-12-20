@@ -57,14 +57,6 @@ void test_wraptime() {
   TEST_ASSERT_EQUAL(4294963001, fractional);
 }
 
-int64_t timespec_nsec(struct timespec *before, struct timespec *after) {
-  int64_t ns = 0;
-  int32_t s = after->tv_sec - before->tv_sec;
-  ns = s * 1000000000;
-  ns += after->tv_nsec - before->tv_nsec;
-  return ns;
-}
-
 void test_setppb() {
   NTPClock clock;
   uint32_t sec = 0, fractional = 0;
@@ -107,12 +99,6 @@ void test_setppb() {
   // 957059/1000000*2^32 = 4110537105, rounding error
   TEST_ASSERT_EQUAL(4110537106, fractional);
 
-  struct timespec before, after;
-  clock_gettime(CLOCK_REALTIME, &before);
-  clock.getTime(4294000000, &sec, &fractional);
-  clock_gettime(CLOCK_REALTIME, &after);
-  // takes around 230ns-440ns on an i3-540
-  printf("getTime: %09ld ns\n", timespec_nsec(&before, &after));
 }
 
 void test_realvalues() {
@@ -176,6 +162,29 @@ void test_getoffset() {
   TEST_ASSERT_EQUAL(-44547, clock.getOffset(221838856, 3785790264, 0));
 }
 
+int64_t timespec_nsec(struct timespec *before, struct timespec *after) {
+  int64_t ns = 0;
+  int32_t s = after->tv_sec - before->tv_sec;
+  ns = s * 1000000000;
+  ns += after->tv_nsec - before->tv_nsec;
+  return ns;
+}
+
+void test_speed() {
+  NTPClock clock;
+  uint32_t sec = 0, fractional = 0;
+
+  clock.setPpb(-668);
+  clock.setTime(838698, 3785790043);
+
+  struct timespec before, after;
+  clock_gettime(CLOCK_REALTIME, &before);
+  clock.getTime(4294000000, &sec, &fractional);
+  clock_gettime(CLOCK_REALTIME, &after);
+  // takes around 230ns-440ns on an i3-540, around 28us on an esp8266 80MHz
+  printf("getTime: %09ld ns\n", timespec_nsec(&before, &after));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_settime);
@@ -184,5 +193,6 @@ int main() {
   RUN_TEST(test_setppb);
   RUN_TEST(test_realvalues);
   RUN_TEST(test_getoffset);
+  RUN_TEST(test_speed);
   return UNITY_END();
 }
