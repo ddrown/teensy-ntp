@@ -5,6 +5,7 @@
 #include "GPS.h"
 #include "NTPClock.h"
 #include "ClockPID.h"
+#include "NTPServer.h"
 #include "settings.h"
 
 #define BAUD_SERIAL 115200
@@ -17,6 +18,7 @@ GPSDateTime gps(&Serial);
 NTPClock localClock;
 WiFiUDP udp;
 IPAddress logDestination;
+NTPServer server(&udp, &localClock);
 
 uint32_t lastPPS = 0;
 uint8_t lastLed = 0;
@@ -77,6 +79,7 @@ uint8_t settime = 0;
 uint32_t lastMilli = 0;
 uint8_t wait = 0;
 void loop() {
+  server.poll();
   if((millis() - lastMilli) > 1000) {
     uint32_t sec, fracSec;
     uint32_t microsec = micros();
@@ -94,6 +97,7 @@ void loop() {
     udp.endPacket();
     lastMilli = millis();
   }
+  server.poll();
   if(Serial.available()) {
     if(gps.decode()) {
       uint32_t gpstime = gps.GPSnow().ntptime();
@@ -145,4 +149,5 @@ void loop() {
       }
     }
   }
+  server.poll();
 }

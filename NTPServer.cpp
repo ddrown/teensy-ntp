@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFiUdp.h>
 #include "NTPClock.h"
 #include "NTPServer.h"
 
@@ -8,7 +9,7 @@ void NTPServer::poll() {
   uint16_t port;
   uint32_t recvTS, txTS;
 
-  recvTS = millis();
+  recvTS = micros();
   rec_length = udp_->parsePacket();
   if(rec_length == 0) {
     return;
@@ -22,7 +23,7 @@ void NTPServer::poll() {
   port = udp_->remotePort();
   src = udp_->remoteIP();
 
-  udp_->read(&packetBuffer_, sizeof(struct ntp_packet));
+  udp_->read((unsigned char *)&packetBuffer_, sizeof(struct ntp_packet));
   
   if(packetBuffer_.version < 2 || packetBuffer_.version > 4) {
     return; // unknown version
@@ -56,13 +57,17 @@ void NTPServer::poll() {
   if(!localClock_->getTime(recvTS, &packetBuffer_.recv_time, &packetBuffer_.recv_time_fb)) {
     return; // clock not set yet
   }
+  packetBuffer_.recv_time = htonl(packetBuffer_.recv_time);
+  packetBuffer_.recv_time_fb = htonl(packetBuffer_.recv_time_fb);
 
-  txTS = millis();
+  txTS = micros();
   if(!localClock_->getTime(txTS, &packetBuffer_.trans_time, &packetBuffer_.trans_time_fb)) {
     return; // clock not set yet
   }
+  packetBuffer_.trans_time = htonl(packetBuffer_.trans_time);
+  packetBuffer_.trans_time_fb = htonl(packetBuffer_.trans_time_fb);
 
   udp_->beginPacket(src, port);
-  udp_->write(packetBuffer_, sizeof(struct ntp_packet));
+  udp_->write((char *)&packetBuffer_, sizeof(struct ntp_packet));
   udp_->endPacket();
 }
