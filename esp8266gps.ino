@@ -75,6 +75,7 @@ void setup() {
 
 uint8_t settime = 0;
 uint32_t lastMilli = 0;
+uint8_t wait = 0;
 void loop() {
   if((millis() - lastMilli) > 1000) {
     uint32_t sec, fracSec;
@@ -105,8 +106,13 @@ void loop() {
         if(lastPPS > 0) {
           if(settime) {
             int64_t offset = localClock.getOffset(lastPPS, gpstime, 0);
-            ClockPID.add_sample(lastPPS, gpstime, offset);
-            localClock.setPpb(ClockPID.out() * 1000000000.0);
+            if(ClockPID.full() && wait) {
+              wait--;
+            } else {
+              ClockPID.add_sample(lastPPS, gpstime, offset);
+              localClock.setPpb(ClockPID.out() * 1000000000.0);
+              wait = 15;
+            }
             double offsetHuman = offset / (double)4294967296.0;
             udp.beginPacket(logDestination, 51413);
             udp.print(lastPPS);
@@ -119,7 +125,9 @@ void loop() {
             udp.print(" ");
             udp.print(localClock.getPpb());
             udp.print(" ");
-            udp.println(gpstime);
+            udp.print(gpstime);
+            udp.print(" ");
+            udp.println(wait);
             udp.endPacket();
           } else {
             localClock.setTime(lastPPS, gpstime);

@@ -31,6 +31,8 @@ class ClockPID_c {
     float i_out() { return last_out_i; };
     float d_out() { return last_out_d; };
     float out() { return last_out; };
+    uint32_t samples() { return count; };
+    bool full() { return count == NTPPID_MAX_COUNT; };
 
     void reset_clock() { count = 0; }
 
