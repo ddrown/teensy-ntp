@@ -15,6 +15,9 @@ all: $(BINS)
 	echo ----------------------------------------------------------------
 	for i in $(BINS); do LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./$$i; done
 
+run-test-%: test-%
+	LD_LIBRARY_PATH=$(ARDUINOFAKEDIR)/build/src/ ./$^
+
 clean:
 	rm -f *.o $(BINS) .depend
 
