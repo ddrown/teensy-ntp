@@ -18,7 +18,7 @@ NTPClock localClock;
 WiFiUDP udp;
 IPAddress logDestination;
 
-long lastPPS = 0;
+uint32_t lastPPS = 0;
 
 //ISR for PPS interrupt
 void ICACHE_RAM_ATTR handleInterrupt() {
@@ -50,6 +50,7 @@ void setup() {
   logger.print("Connecting to SSID: ");
   logger.println(ssid);
   WiFi.begin(ssid, ssidPass);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP, 0); // no sleeping for minimum latency
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
