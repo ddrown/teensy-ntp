@@ -30,19 +30,19 @@ void test_gettime() {
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
   // 999999/1000000*2^32 = 4294963001
-  TEST_ASSERT_EQUAL(4294963001, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 
   When(Method(ArduinoFake(), micros)).Return(4000999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12349678, sec);
   // 999999/1000000*2^32 = 4294963001
-  TEST_ASSERT_EQUAL(4294963001, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 
   When(Method(ArduinoFake(), micros)).Return(4293999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12349971, sec);
   // 999999/1000000*2^32 = 4294963001
-  TEST_ASSERT_EQUAL(4294963001, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 }
 
 void test_wraptime() {
@@ -68,8 +68,8 @@ void test_setppb() {
   TEST_ASSERT_EQUAL(12345679, sec);
   // 1000001*1.000001 = 1000002
   // 1000002/1000000*2^32 = 4294975885
-  // 4294975885-2^32 = 8589, rounding error
-  TEST_ASSERT_EQUAL(8588, fractional);
+  // 4294975885-2^32 = 8589
+  TEST_ASSERT_UINT32_WITHIN(1, 8589, fractional);
 
   clock.setTime(0, 12345680);
   clock.setPpb(10000);
@@ -77,8 +77,8 @@ void test_setppb() {
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345680, sec);
   // 900000*1.00001 = 900009 us
-  // 900009/1000000*2^32 = 3865509221, rounding error
-  TEST_ASSERT_EQUAL(3865509220, fractional);
+  // 900009/1000000*2^32 = 3865509221
+  TEST_ASSERT_UINT32_WITHIN(1, 3865509221, fractional);
 
   clock.setTime(0, 12345676);
   clock.setPpb(-10000);
@@ -86,8 +86,8 @@ void test_setppb() {
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345676, sec);
   // 900000*(1-0.00001) = 899991
-  // 899991/1000000*2^32 = 3865431911, rounding error
-  TEST_ASSERT_EQUAL(3865431912, fractional);
+  // 899991/1000000*2^32 = 3865431911
+  TEST_ASSERT_UINT32_WITHIN(1, 3865431911, fractional);
 
   When(Method(ArduinoFake(), micros)).Return(4293999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
@@ -96,9 +96,8 @@ void test_setppb() {
   // 4293+12345676 = 12349969
   TEST_ASSERT_EQUAL(12349969, sec);
   // 4293957059 % 1000000 = 957059 us
-  // 957059/1000000*2^32 = 4110537105, rounding error
-  TEST_ASSERT_EQUAL(4110537106, fractional);
-
+  // 957059/1000000*2^32 = 4110537105
+  TEST_ASSERT_UINT32_WITHIN(1, 4110537105, fractional);
 }
 
 void test_realvalues() {
@@ -113,20 +112,21 @@ void test_realvalues() {
   // 120000003.839943888 * 2^32 / 1000000 = 515396092012
   // 515396092012 / 2^32 = 120
   // 3785790043 + 120 = 3785790163
-  // 515396092012 % 2^32 = 16492, rounding error
+  // 515396092012 % 2^32 = 16492
   TEST_ASSERT_EQUAL(1, clock.getTime(120838782, &sec, &fractional));
   TEST_ASSERT_EQUAL(3785790163, sec);
   TEST_ASSERT_EQUAL(16493, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 16492, fractional);
 
   // 121838782 - 120838782 = 1000000
   // 1000000 * (1-0.000000668) = 999999.332000000
   // 999999.332000000 * 2^32 / 1000000 = 4294964426
   // 4294964426+16493 = 4294980919
   // 4294980919 / 2^32 = 1
-  // 4294980919 % 2^32 = 13623, rounding error
+  // 4294980919 % 2^32 = 13623
   TEST_ASSERT_EQUAL(1, clock.getTime(121838782, &sec, &fractional));
   TEST_ASSERT_EQUAL(3785790164, sec);
-  TEST_ASSERT_EQUAL(13624, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 13623, fractional);
 
   // 220838856 - 121838782 = 99000074
   // 99000074 * (1-0.000000668) = 99000007.867950568
@@ -136,17 +136,17 @@ void test_realvalues() {
   // 425201809720 % 2^32 = 47416
   TEST_ASSERT_EQUAL(1, clock.getTime(220838856, &sec, &fractional));
   TEST_ASSERT_EQUAL(3785790263, sec);
-  TEST_ASSERT_EQUAL(47416, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 47416, fractional);
 
   // 221838856 - 220838856 = 1000000
   // 1000000 * (1-0.000000668) = 999999.332000000
   // 999999.332000000 * 2^32 / 1000000 = 4294964426
   // 4294964426 + 47416 = 4295011842
   // 4295011842 / 2^32 = 1
-  // 4295011842 % 2^32 = 44546, rounding error
+  // 4295011842 % 2^32 = 44546
   TEST_ASSERT_EQUAL(1, clock.getTime(221838856, &sec, &fractional));
   TEST_ASSERT_EQUAL(3785790264, sec);
-  TEST_ASSERT_EQUAL(44547, fractional);
+  TEST_ASSERT_UINT32_WITHIN(1, 44546, fractional);
 }
 
 void test_getoffset() {
