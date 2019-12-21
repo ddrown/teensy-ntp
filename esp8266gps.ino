@@ -19,10 +19,13 @@ WiFiUDP udp;
 IPAddress logDestination;
 
 uint32_t lastPPS = 0;
+uint8_t lastLed = 0;
 
 //ISR for PPS interrupt
 void ICACHE_RAM_ATTR handleInterrupt() {
   lastPPS = micros();
+  lastLed = !lastLed;
+  digitalWrite(LED_BUILTIN, lastLed);
 }
 
 uint32_t compileTime;
@@ -38,6 +41,7 @@ void setup() {
   logger.enableIntTx(false);
   logger.println("\n\nUsing SoftwareSerial for logging");
 
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PPSPIN, INPUT);
   digitalWrite(PPSPIN, LOW);
   attachInterrupt(digitalPinToInterrupt(PPSPIN), handleInterrupt, RISING);  
@@ -70,7 +74,24 @@ void setup() {
 }
 
 uint8_t settime = 0;
+uint32_t lastMilli = 0;
 void loop() {
+  if((millis() - lastMilli) > 1000) {
+    uint32_t sec, fracSec;
+    
+    udp.beginPacket(logDestination, 51413);
+    udp.print("M ");
+    udp.print(micros());
+    udp.print(" ");
+    localClock.getTime(&sec, &fracSec);
+    udp.print(sec);
+    udp.print(".");
+    udp.print(fracSec);
+    udp.print(" ");
+    udp.println(lastPPS);
+    udp.endPacket();
+    lastMilli = millis();
+  }
   if(Serial.available()) {
     if(gps.decode()) {
       if(gps.GPSnow().ntptime() < compileTime) {
