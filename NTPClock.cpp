@@ -23,7 +23,7 @@ uint8_t NTPClock::getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFra
   int32_t ntpFracPassedDrift = (int64_t)ntpFracPassed * ppb_ / 1000000000LL;
   ntpFracPassed += ntpFracPassedDrift;
   temp_.whole = ntpTimestamp_.whole + ntpFracPassed;
-  if(ntpFracPassed >= 4294967296000ULL) { // must update more than every 4294s
+  if(ntpFracPassed >= 4294967296ULL) { // every second
     lastMicros_ = now;
     ntpTimestamp_.whole = temp_.whole;
   }
