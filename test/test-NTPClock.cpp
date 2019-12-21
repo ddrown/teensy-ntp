@@ -32,15 +32,15 @@ void test_gettime() {
   // 999999/1000000*2^32 = 4294963001
   TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 
-  When(Method(ArduinoFake(), micros)).Return(4000999999);
+  When(Method(ArduinoFake(), micros)).Return(2000999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
-  TEST_ASSERT_EQUAL(12349678, sec);
+  TEST_ASSERT_EQUAL(12347678, sec);
   // 999999/1000000*2^32 = 4294963001
   TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 
-  When(Method(ArduinoFake(), micros)).Return(4293999999);
+  When(Method(ArduinoFake(), micros)).Return(4000999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
-  TEST_ASSERT_EQUAL(12349971, sec);
+  TEST_ASSERT_EQUAL(12349678, sec);
   // 999999/1000000*2^32 = 4294963001
   TEST_ASSERT_UINT32_WITHIN(1, 4294963001, fractional);
 }
@@ -89,15 +89,15 @@ void test_setppb() {
   // 899991/1000000*2^32 = 3865431911
   TEST_ASSERT_UINT32_WITHIN(1, 3865431911, fractional);
 
-  When(Method(ArduinoFake(), micros)).Return(4293999999);
+  When(Method(ArduinoFake(), micros)).Return(2000999999);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
-  // 4293999999*(1-0.00001) = 4293957059
-  // 4293957059 / 1000000 = 4293 seconds
-  // 4293+12345676 = 12349969
-  TEST_ASSERT_EQUAL(12349969, sec);
-  // 4293957059 % 1000000 = 957059 us
-  // 957059/1000000*2^32 = 4110537105
-  TEST_ASSERT_UINT32_WITHIN(1, 4110537105, fractional);
+  // 2000999999*(1-0.00001) = 2000979989
+  // 2000979989 / 1000000 = 2000 seconds
+  // 2000+12345676 = 12347676
+  TEST_ASSERT_EQUAL(12347676, sec);
+  // 2000979989 % 1000000 = 979989 us
+  // 979989/1000000*2^32 = 4209020705
+  TEST_ASSERT_UINT32_WITHIN(1, 4209020705, fractional);
 }
 
 void test_realvalues() {
@@ -162,6 +162,22 @@ void test_getoffset() {
   TEST_ASSERT_EQUAL(-44547, clock.getOffset(221838856, 3785790264, 0));
 }
 
+void test_backwards() {
+  NTPClock clock;
+  uint32_t sec = 0, fractional = 0;
+
+  clock.setPpb(-975);
+  clock.setTime(545545804, 3785904938);
+
+  TEST_ASSERT_EQUAL(1, clock.getTime(546546017, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785904939, sec);
+  TEST_ASSERT_UINT32_WITHIN(1, 910640, fractional);
+
+  TEST_ASSERT_EQUAL(1, clock.getTime(546545806, &sec, &fractional));
+  TEST_ASSERT_EQUAL(3785904939, sec);
+  TEST_ASSERT_UINT32_WITHIN(1, 4402, fractional);
+}
+
 int64_t timespec_nsec(struct timespec *before, struct timespec *after) {
   int64_t ns = 0;
   int32_t s = after->tv_sec - before->tv_sec;
@@ -193,6 +209,7 @@ int main() {
   RUN_TEST(test_setppb);
   RUN_TEST(test_realvalues);
   RUN_TEST(test_getoffset);
+  RUN_TEST(test_backwards);
   RUN_TEST(test_speed);
   return UNITY_END();
 }
