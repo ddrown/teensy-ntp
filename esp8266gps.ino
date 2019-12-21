@@ -82,7 +82,7 @@ void loop() {
     
     udp.beginPacket(logDestination, 51413);
     udp.print("M ");
-    udp.print(microssec);
+    udp.print(microsec);
     udp.print(" ");
     localClock.getTime(microsec, &sec, &fracSec);
     udp.print(sec);
