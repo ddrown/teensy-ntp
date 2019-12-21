@@ -95,16 +95,17 @@ void loop() {
   }
   if(Serial.available()) {
     if(gps.decode()) {
-      if(gps.GPSnow().ntptime() < compileTime) {
-        gps.GPSnow().print(&logger);
-        logger.print(" < ");
-        logger.print(compileTime);
-        logger.println("");
+      uint32_t gpstime = gps.GPSnow().ntptime();
+      if(gpstime < compileTime) {
+        udp.beginPacket(logDestination, 51413);
+        udp.print("B ");
+        udp.println(gpstime);
+        udp.endPacket();
       } else {
         if(lastPPS > 0) {
           if(settime) {
-            int64_t offset = localClock.getOffset(lastPPS, gps.GPSnow().ntptime(), 0);
-            ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), offset);
+            int64_t offset = localClock.getOffset(lastPPS, gpstime, 0);
+            ClockPID.add_sample(lastPPS, gpstime, offset);
             localClock.setPpb(ClockPID.out() * 1000000000.0);
             double offsetHuman = offset / (double)4294967296.0;
             udp.beginPacket(logDestination, 51413);
@@ -116,12 +117,20 @@ void loop() {
             udp.print(" ");
             udp.print(ClockPID.d_chi(), 9);
             udp.print(" ");
-            udp.println(localClock.getPpb());
+            udp.print(localClock.getPpb());
+            udp.print(" ");
+            udp.println(gpstime);
             udp.endPacket();
           } else {
-            localClock.setTime(lastPPS, gps.GPSnow().ntptime());
-            ClockPID.add_sample(lastPPS, gps.GPSnow().ntptime(), 0);
+            localClock.setTime(lastPPS, gpstime);
+            ClockPID.add_sample(lastPPS, gpstime, 0);
             settime = 1;
+            udp.beginPacket(logDestination, 51413);
+            udp.print("S ");
+            udp.print(lastPPS);
+            udp.print(" ");
+            udp.println(gpstime);
+            udp.endPacket();
           }
           lastPPS = 0;
         }
