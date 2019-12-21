@@ -78,12 +78,13 @@ uint32_t lastMilli = 0;
 void loop() {
   if((millis() - lastMilli) > 1000) {
     uint32_t sec, fracSec;
+    uint32_t microsec = micros();
     
     udp.beginPacket(logDestination, 51413);
     udp.print("M ");
-    udp.print(micros());
+    udp.print(microssec);
     udp.print(" ");
-    localClock.getTime(&sec, &fracSec);
+    localClock.getTime(microsec, &sec, &fracSec);
     udp.print(sec);
     udp.print(".");
     udp.print(fracSec);
