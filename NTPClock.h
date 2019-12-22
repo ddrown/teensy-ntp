@@ -20,10 +20,10 @@ class NTPClock {
     uint8_t timeset_;
     // lastMicros_ local time, ntpTimestamp_ real time
     uint32_t lastMicros_;
-    uint32_t refTime_;
     union {
       uint32_t units[2];
       uint64_t whole;
     } ntpTimestamp_, temp_;
     int32_t ppb_;
+    uint32_t refTime_;
 };
