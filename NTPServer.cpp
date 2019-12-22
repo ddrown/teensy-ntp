@@ -49,8 +49,8 @@ void NTPServer::poll() {
   packetBuffer_.dispersion = 0; // TODO
   packetBuffer_.dispersion_fb = 0; // TODO
   packetBuffer_.ident = htonl(0x50505300); // PPS
-  packetBuffer_.ref_time = 0; // TODO
-  packetBuffer_.ref_time_fb = 0; // TODO
+  packetBuffer_.ref_time = htonl(localClock_->getReftime());
+  packetBuffer_.ref_time_fb = 0;
   packetBuffer_.org_time = packetBuffer_.trans_time;
   packetBuffer_.org_time_fb = packetBuffer_.trans_time_fb;
 
@@ -60,14 +60,15 @@ void NTPServer::poll() {
   packetBuffer_.recv_time = htonl(packetBuffer_.recv_time);
   packetBuffer_.recv_time_fb = htonl(packetBuffer_.recv_time_fb);
 
+  udp_->beginPacket(src, port);
+
   txTS = micros();
   if(!localClock_->getTime(txTS, &packetBuffer_.trans_time, &packetBuffer_.trans_time_fb)) {
+    udp_->endPacket();
     return; // clock not set yet
   }
   packetBuffer_.trans_time = htonl(packetBuffer_.trans_time);
   packetBuffer_.trans_time_fb = htonl(packetBuffer_.trans_time_fb);
-
-  udp_->beginPacket(src, port);
   udp_->write((char *)&packetBuffer_, sizeof(struct ntp_packet));
   udp_->endPacket();
 }

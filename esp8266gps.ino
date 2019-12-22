@@ -76,27 +76,8 @@ void setup() {
 }
 
 uint8_t settime = 0;
-uint32_t lastMilli = 0;
 uint8_t wait = 0;
 void loop() {
-  server.poll();
-  if((millis() - lastMilli) > 1000) {
-    uint32_t sec, fracSec;
-    uint32_t microsec = micros();
-    
-    udp.beginPacket(logDestination, 51413);
-    udp.print("M ");
-    udp.print(microsec);
-    udp.print(" ");
-    localClock.getTime(microsec, &sec, &fracSec);
-    udp.print(sec);
-    udp.print(".");
-    udp.print(fracSec);
-    udp.print(" ");
-    udp.println(lastPPS);
-    udp.endPacket();
-    lastMilli = millis();
-  }
   server.poll();
   if(Serial.available()) {
     if(gps.decode()) {
@@ -114,6 +95,7 @@ void loop() {
               wait--;
             } else {
               ClockPID.add_sample(lastPPS, gpstime, offset);
+              localClock.setRefTime(gpstime);
               localClock.setPpb(ClockPID.out() * 1000000000.0);
               wait = 15;
             }
