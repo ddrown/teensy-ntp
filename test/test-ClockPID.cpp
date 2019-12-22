@@ -24,7 +24,7 @@ void test_addsample() {
 
   for(int i = 0; i < NTPPID_MAX_COUNT; i++) {
     // every second, clock drifts 5us and is uncorrected
-    float sample = ClockPID.add_sample(999995*i, i, 21474.836480*i);
+    float sample = ClockPID.add_sample(999995*i*80, i, 21474.836480*i);
     TEST_ASSERT_FLOAT_WITHIN(1e-9, expected[i], sample);
     if(i > 1) {
       TEST_ASSERT_FLOAT_WITHIN(1e-9, 0.000005, ClockPID.d());

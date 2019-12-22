@@ -7,7 +7,7 @@ void test_settime() {
   uint32_t sec = 0, fractional = 0;
 
   clock.setTime(0, 12345678);
-  When(Method(ArduinoFake(), micros)).Return(1000000);
+  When(Method(ArduinoFake(), micros)).Return(1000000*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
   TEST_ASSERT_EQUAL(0, fractional);
@@ -21,12 +21,12 @@ void test_gettime() {
   TEST_ASSERT_EQUAL(0, clock.getTime(&sec, &fractional));
 
   clock.setTime(0, 12345678);
-  When(Method(ArduinoFake(), micros)).Return(1000001);
+  When(Method(ArduinoFake(), micros)).Return(1000001*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
   TEST_ASSERT_EQUAL(4294, fractional);
 
-  When(Method(ArduinoFake(), micros)).Return(1999999);
+  When(Method(ArduinoFake(), micros)).Return(1999999*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
   // 999999/1000000*2^32 = 4294963001
@@ -63,7 +63,7 @@ void test_setppb() {
 
   clock.setTime(0, 12345678);
   clock.setPpb(1000);
-  When(Method(ArduinoFake(), micros)).Return(1000001);
+  When(Method(ArduinoFake(), micros)).Return(1000001*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345679, sec);
   // 1000001*1.000001 = 1000002
@@ -73,7 +73,7 @@ void test_setppb() {
 
   clock.setTime(0, 12345680);
   clock.setPpb(10000);
-  When(Method(ArduinoFake(), micros)).Return(900000);
+  When(Method(ArduinoFake(), micros)).Return(900000*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345680, sec);
   // 900000*1.00001 = 900009 us
@@ -82,7 +82,7 @@ void test_setppb() {
 
   clock.setTime(0, 12345676);
   clock.setPpb(-10000);
-  When(Method(ArduinoFake(), micros)).Return(900000);
+  When(Method(ArduinoFake(), micros)).Return(900000*80);
   TEST_ASSERT_EQUAL(1, clock.getTime(&sec, &fractional));
   TEST_ASSERT_EQUAL(12345676, sec);
   // 900000*(1-0.00001) = 899991
