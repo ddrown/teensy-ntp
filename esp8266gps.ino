@@ -25,7 +25,7 @@ uint8_t lastLed = 0;
 
 //ISR for PPS interrupt
 void ICACHE_RAM_ATTR handleInterrupt() {
-  lastPPS = micros();
+  lastPPS = esp_get_cycle_count();
   lastLed = !lastLed;
   digitalWrite(LED_BUILTIN, lastLed);
 }
@@ -49,7 +49,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PPSPIN), handleInterrupt, RISING);  
   
   compileTime = compile.ntptime();
-  localClock.setTime(micros(), compileTime);
+  localClock.setTime(esp_get_cycle_count(), compileTime);
   // allow for compile timezone to be 12 hours ahead
   compileTime -= 12*60*60;
 
@@ -77,7 +77,16 @@ void setup() {
 
 uint8_t settime = 0;
 uint8_t wait = 0;
+uint32_t lastUpdate = 0;
 void loop() {
+  server.poll();
+  uint32_t cyclesNow = esp_get_cycle_count();
+  if((cyclesNow - lastUpdate) >= 80000000) {
+    uint32_t s, s_fb;
+    // update the local clock's cycle count
+    localClock.getTime(cyclesNow,&s,&s_fb);
+    lastUpdate = cyclesNow;
+  }
   server.poll();
   if(Serial.available()) {
     if(gps.decode()) {
@@ -97,7 +106,7 @@ void loop() {
               ClockPID.add_sample(lastPPS, gpstime, offset);
               localClock.setRefTime(gpstime);
               localClock.setPpb(ClockPID.out() * 1000000000.0);
-              wait = 15;
+              wait = 2; // (2+1)*16=48s, 80MHz wraps at 53s
             }
             double offsetHuman = offset / (double)4294967296.0;
             udp.beginPacket(logDestination, 51413);

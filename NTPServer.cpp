@@ -9,7 +9,7 @@ void NTPServer::poll() {
   uint16_t port;
   uint32_t recvTS, txTS;
 
-  recvTS = micros();
+  recvTS = esp_get_cycle_count();
   rec_length = udp_->parsePacket();
   if(rec_length == 0) {
     return;
@@ -62,7 +62,7 @@ void NTPServer::poll() {
 
   udp_->beginPacket(src, port);
 
-  txTS = micros();
+  txTS = esp_get_cycle_count();
   if(!localClock_->getTime(txTS, &packetBuffer_.trans_time, &packetBuffer_.trans_time_fb)) {
     udp_->endPacket();
     return; // clock not set yet
