@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#define NTPPID_KP 0.0001
+#define NTPPID_KP 0.001
 #define NTPPID_KI 0.001
 #define NTPPID_KD 1.0
 
