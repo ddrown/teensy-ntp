@@ -2,9 +2,17 @@
 
 #include <stdint.h>
 
+#ifndef NTPPID_KP
 #define NTPPID_KP 0.001
+#endif
+
+#ifndef NTPPID_KI
 #define NTPPID_KI 0.001
+#endif
+
+#ifndef NTPPID_KD
 #define NTPPID_KD 1.0
+#endif
 
 #define NTPPID_MAX_COUNT 16
 
