@@ -7,6 +7,7 @@
 #include "ClockPID.h"
 #include "NTPServer.h"
 #include "settings.h"
+#include "platform-clock.h"
 
 #define BAUD_SERIAL 115200
 #define BAUD_LOGGER 115200
@@ -25,7 +26,7 @@ uint8_t lastLed = 0;
 
 //ISR for PPS interrupt
 void ICACHE_RAM_ATTR handleInterrupt() {
-  lastPPS = esp_get_cycle_count();
+  lastPPS = COUNTERFUNC();
   lastLed = !lastLed;
   digitalWrite(LED_BUILTIN, lastLed);
 }
@@ -49,7 +50,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PPSPIN), handleInterrupt, RISING);
 
   compileTime = compile.ntptime();
-  localClock.setTime(esp_get_cycle_count(), compileTime);
+  localClock.setTime(COUNTERFUNC(), compileTime);
   // allow for compile timezone to be 12 hours ahead
   compileTime -= 12*60*60;
 
@@ -167,8 +168,8 @@ void updateTime(uint32_t gpstime) {
 uint32_t lastUpdate = 0;
 void loop() {
   server.poll();
-  uint32_t cyclesNow = esp_get_cycle_count();
-  if((cyclesNow - lastUpdate) >= 80000000) {
+  uint32_t cyclesNow = COUNTERFUNC();
+  if((cyclesNow - lastUpdate) >= COUNTSPERSECOND) {
     uint32_t s, s_fb;
     // update the local clock's cycle count
     localClock.getTime(cyclesNow,&s,&s_fb);

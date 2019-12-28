@@ -1,4 +1,5 @@
 #include "ClockPID.h"
+#include "platform-clock.h"
 
 #include <stdlib.h>
 #include <math.h>
@@ -99,7 +100,7 @@ struct deriv_calc ClockPID_c::calculate_d() {
   for(uint32_t i = 1; i < count; i++) {
     uint32_t remoteDuration = realSeconds[i] - realSeconds[0];
     timestampDurations[i] = timestamps[i] - timestamps[0];
-    rawOffsets[i] = remoteDuration * 80000000 - timestampDurations[i];
+    rawOffsets[i] = remoteDuration * COUNTSPERSECOND - timestampDurations[i];
   }
 
   avg_ts = average(timestampDurations);

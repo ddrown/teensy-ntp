@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "NTPClock.h"
+#include "platform-clock.h"
 
 void NTPClock::setTime(uint32_t micros, uint32_t ntpTimestamp) {
   timeset_ = 1;
@@ -9,7 +10,7 @@ void NTPClock::setTime(uint32_t micros, uint32_t ntpTimestamp) {
 }
 
 uint8_t NTPClock::getTime(uint32_t *ntpTimestamp, uint32_t *ntpFractional) {
-  uint32_t now = esp_get_cycle_count();
+  uint32_t now = COUNTERFUNC();
 
   return getTime(now, ntpTimestamp, ntpFractional);
 }
@@ -19,7 +20,7 @@ uint8_t NTPClock::getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFra
   if (!timeset_)
     return 0;
 
-  int64_t ntpFracPassed = (now - lastMicros_) * 4294967296LL / 80000000LL;
+  int64_t ntpFracPassed = (now - lastMicros_) * 4294967296LL / (int64_t)COUNTSPERSECOND;
   int32_t ntpFracPassedDrift = ntpFracPassed * ppb_ / 1000000000LL;
   ntpFracPassed += ntpFracPassedDrift;
   temp_.whole = ntpTimestamp_.whole + ntpFracPassed;
@@ -51,6 +52,7 @@ int64_t NTPClock::getOffset(uint32_t now, uint32_t ntpTimestamp, uint32_t ntpFra
 }
 
 // use + for local slower, - for local faster
+// can be set once per second
 void NTPClock::setPpb(int32_t ppb) {
   if(ppb >= -500000 && ppb <= 500000) { // limited to +/-500ppm
     ppb_ = ppb;

@@ -2,6 +2,7 @@
 #include <WiFiUdp.h>
 #include "NTPClock.h"
 #include "NTPServer.h"
+#include "platform-clock.h"
 
 void NTPServer::poll() {
   int rec_length;
@@ -9,7 +10,7 @@ void NTPServer::poll() {
   uint16_t port;
   uint32_t recvTS, txTS;
 
-  recvTS = esp_get_cycle_count();
+  recvTS = COUNTERFUNC();
   rec_length = udp_->parsePacket();
   if(rec_length == 0) {
     return;
@@ -43,12 +44,12 @@ void NTPServer::poll() {
   if(packetBuffer_.poll > 12) {
     packetBuffer_.poll = 12;
   }
-  packetBuffer_.precision = -20; // 1us
+  packetBuffer_.precision = -26; // 80MHz
   packetBuffer_.root_delay = 0; // TODO
   packetBuffer_.root_delay_fb = 0; // TODO
   packetBuffer_.dispersion = 0; // TODO
   packetBuffer_.dispersion_fb = 0; // TODO
-  packetBuffer_.ident = htonl(0x50505300); // PPS
+  packetBuffer_.ident = htonl(0x50505300); // "PPS"
   packetBuffer_.ref_time = htonl(localClock_->getReftime());
   packetBuffer_.ref_time_fb = 0;
   packetBuffer_.org_time = packetBuffer_.trans_time;
@@ -62,7 +63,7 @@ void NTPServer::poll() {
 
   udp_->beginPacket(src, port);
 
-  txTS = esp_get_cycle_count();
+  txTS = COUNTERFUNC();
   if(!localClock_->getTime(txTS, &packetBuffer_.trans_time, &packetBuffer_.trans_time_fb)) {
     udp_->endPacket();
     return; // clock not set yet
