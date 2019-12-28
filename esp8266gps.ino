@@ -17,9 +17,9 @@
 SoftwareSerial logger(3, 1);
 GPSDateTime gps(&Serial);
 NTPClock localClock;
-WiFiUDP udp;
+WiFiUDP ntpSocket, logSocket;
 IPAddress logDestination;
-NTPServer server(&udp, &localClock);
+NTPServer server(&ntpSocket, &localClock);
 
 uint32_t lastPPS = 0;
 uint8_t lastLed = 0;
@@ -69,7 +69,8 @@ void setup() {
   logger.println(WiFi.localIP());
 
   logDestination.fromString(logDestinationIP);
-  udp.begin(123);
+  ntpSocket.begin(123);
+  logSocket.begin(1234);
 
   while(Serial.available()) { // throw away all the text received while starting up
     Serial.read();
@@ -137,30 +138,30 @@ void updateTime(uint32_t gpstime) {
       wait = WAIT_COUNT-1; // (2+1)*16=48s, 80MHz wraps at 53s
 
       double offsetHuman = samples[median_index].offset / (double)4294967296.0;
-      udp.beginPacket(logDestination, 51413);
-      udp.print(samples[median_index].pps);
-      udp.print(" ");
-      udp.print(offsetHuman, 9);
-      udp.print(" ");
-      udp.print(ClockPID.d(), 9);
-      udp.print(" ");
-      udp.print(ClockPID.d_chi(), 9);
-      udp.print(" ");
-      udp.print(localClock.getPpb());
-      udp.print(" ");
-      udp.println(samples[median_index].gpstime);
-      udp.endPacket();
+      logSocket.beginPacket(logDestination, 51413);
+      logSocket.print(samples[median_index].pps);
+      logSocket.print(" ");
+      logSocket.print(offsetHuman, 9);
+      logSocket.print(" ");
+      logSocket.print(ClockPID.d(), 9);
+      logSocket.print(" ");
+      logSocket.print(ClockPID.d_chi(), 9);
+      logSocket.print(" ");
+      logSocket.print(localClock.getPpb());
+      logSocket.print(" ");
+      logSocket.println(samples[median_index].gpstime);
+      logSocket.endPacket();
     }
   } else {
     localClock.setTime(lastPPS, gpstime);
     ClockPID.add_sample(lastPPS, gpstime, 0);
     settime = 1;
-    udp.beginPacket(logDestination, 51413);
-    udp.print("S ");
-    udp.print(lastPPS);
-    udp.print(" ");
-    udp.println(gpstime);
-    udp.endPacket();
+    logSocket.beginPacket(logDestination, 51413);
+    logSocket.print("S "); // clock set message
+    logSocket.print(lastPPS);
+    logSocket.print(" ");
+    logSocket.println(gpstime);
+    logSocket.endPacket();
   }
   lastPPS = 0;
 }
@@ -180,10 +181,10 @@ void loop() {
     if(gps.decode()) {
       uint32_t gpstime = gps.GPSnow().ntptime();
       if(gpstime < compileTime) {
-        udp.beginPacket(logDestination, 51413);
-        udp.print("B ");
-        udp.println(gpstime);
-        udp.endPacket();
+        logSocket.beginPacket(logDestination, 51413);
+        logSocket.print("B "); // gps clock bad message (for example, on startup before GPS almanac)
+        logSocket.println(gpstime);
+        logSocket.endPacket();
       } else {
         updateTime(gpstime);
       }
