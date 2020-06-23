@@ -4,9 +4,8 @@
 #include "DateTime.h"
 #include "GPS.h"
 
-#define gpsTimeOffset 2 //centisecond raw offset, compared to known-good stratum 1 server
-
 #define GPS_CODE_ZDA "GPZDA"
+#define GPS_CODE2_ZDA "GNZDA"
  
 /**
  * Save new date and time to private variables
@@ -16,6 +15,7 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
+  dateMillis = millis();
 }
 
 void GPSDateTime::time(String time) {
@@ -78,7 +78,7 @@ bool GPSDateTime::decode() {
     // determinator between values
     switch (count_) {
       case 0: // ID
-        if (tmp.equals(GPS_CODE_ZDA)) {
+        if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
           validCode = true;
         } else {
           validCode = false;
@@ -109,7 +109,7 @@ bool GPSDateTime::decode() {
     }
     tmp = "\0";
     count_++;
-  } else if (c == '\r') {
+  } else if (c == '\r' || c == '\n') {
     // carriage return, so check
     String checksum = tmp;
     String checkParity = String(parity_, HEX);
@@ -122,12 +122,12 @@ bool GPSDateTime::decode() {
       isUpdated_ = true;
       // commit datetime
     }
-  } else if (c == '\n') {
+
     // end of string
     tmp = "\0";
     count_ = 0;
     parity_ = 0;
-    return true;
+    return validString;
   } else {
     // ordinary char
     tmp += c;

@@ -2,7 +2,7 @@
 
 class GPSDateTime {
  public:
-  GPSDateTime(Stream *gpsUart): gpsUart_(gpsUart) {  };
+  GPSDateTime(Stream *gpsUart): tmp(""), gpsUart_(gpsUart), validCode(false), dateMillis(0) {  };
   void commit(void);
   void time(String time);
   uint16_t hour();
@@ -16,6 +16,7 @@ class GPSDateTime {
   uint16_t year(void);
   DateTime GPSnow();
   bool decode();
+  uint32_t capturedAt() { return dateMillis; };
 
  protected:
   uint32_t newTime_;
@@ -38,6 +39,7 @@ class GPSDateTime {
   bool validString;
   bool isUpdated_;
   bool getFlag_;
+  uint32_t dateMillis;
 
   bool debug_;
   String msg;
