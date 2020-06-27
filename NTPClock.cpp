@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "NTPClock.h"
 #include "platform-clock.h"
+#include "lwip_t41.h"
 
 void NTPClock::setTime(uint32_t micros, uint32_t ntpTimestamp) {
   timeset_ = 1;

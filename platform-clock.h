@@ -1,9 +1,9 @@
 #pragma once
 
 #ifndef COUNTERFUNC
-#define COUNTERFUNC esp_get_cycle_count
+#define COUNTERFUNC read_1588_timer
 #endif
 
 #ifndef COUNTSPERSECOND
-#define COUNTSPERSECOND 80000000
+#define COUNTSPERSECOND 25000000
 #endif

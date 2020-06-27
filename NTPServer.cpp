@@ -1,75 +1,155 @@
 #include <Arduino.h>
-#include <WiFiUdp.h>
+#include "lwip_t41.h"
+#include "lwip/udp.h"
 #include "NTPClock.h"
 #include "NTPServer.h"
 #include "platform-clock.h"
 
-void NTPServer::poll() {
-  int rec_length;
-  IPAddress src;
-  uint16_t port;
-  uint32_t recvTS, txTS;
+#define TS_POS_S 1
+#define TS_POS_SUBS 0
 
-  recvTS = COUNTERFUNC();
-  rec_length = udp_->parsePacket();
-  if(rec_length == 0) {
-    return;
-  }
+// the values below are in 2^32 fractional second units
+// adjusting from preamble timestamp to trailer timestamp: 752 bits at 100M
+#define RX_TRAILER 32298
+// delay between TX software timestamp and udp_sendto sending packet
+#define TX_DELAY 16492
+
+void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const ip_addr_t *addr, uint16_t port) {
+  union {
+    uint32_t parts[2];
+    uint64_t whole;
+  } timestamp;
+#ifdef NTP_INTERLEAVED
+  struct client *interleavedClient;
+#endif
 
   // drop too small packets
-  if(rec_length < sizeof(struct ntp_packet)) {
+  if(request_buf->len < sizeof(struct ntp_packet)) {
     return;
   }
 
-  port = udp_->remotePort();
-  src = udp_->remoteIP();
-
-  udp_->read((unsigned char *)&packetBuffer_, sizeof(struct ntp_packet));
+  struct ntp_packet *request = (struct ntp_packet *)request_buf->payload;
+  struct ntp_packet *response = (struct ntp_packet *)response_buf->payload;
   
-  if(packetBuffer_.version < 2 || packetBuffer_.version > 4) {
+  if(request->version < 2 || request->version > 4) {
     return; // unknown version
   }
 
-  if(packetBuffer_.mode != NTP_MODE_CLIENT) {
+  if(request->mode != NTP_MODE_CLIENT) {
     return; // not a client request
   }
 
-  packetBuffer_.mode = NTP_MODE_SERVER;
-  packetBuffer_.version = NTP_VERS_4;
-  packetBuffer_.leap = NTP_LEAP_NONE; // TODO: no leap second support
-  packetBuffer_.stratum = 1;
-  if(packetBuffer_.poll < 6) {
-    packetBuffer_.poll = 6;
+  response->mode = NTP_MODE_SERVER;
+  response->version = NTP_VERS_4;
+  if(reftime == 0 || dispersion.s32 > 0x10000) {
+    // no sync or dispersion over 1s
+    response->stratum = 16;
+    response->ident = 0;
+    response->leap = NTP_LEAP_UNSYNC;
+  } else {
+    response->stratum = 1;
+    response->ident = htonl(0x50505300); // "PPS"
+    response->leap = NTP_LEAP_NONE; // TODO: no leap second support
   }
-  if(packetBuffer_.poll > 12) {
-    packetBuffer_.poll = 12;
+  response->poll = request->poll;
+  if(response->poll > 12) {
+    response->poll = 12;
   }
-  packetBuffer_.precision = -26; // 80MHz
-  packetBuffer_.root_delay = 0; // TODO
-  packetBuffer_.root_delay_fb = 0; // TODO
-  packetBuffer_.dispersion = 0; // TODO
-  packetBuffer_.dispersion_fb = 0; // TODO
-  packetBuffer_.ident = htonl(0x50505300); // "PPS"
-  packetBuffer_.ref_time = htonl(localClock_->getReftime());
-  packetBuffer_.ref_time_fb = 0;
-  packetBuffer_.org_time = packetBuffer_.trans_time;
-  packetBuffer_.org_time_fb = packetBuffer_.trans_time_fb;
+  response->precision = -24; // 25MHz = 40ns ~ 2^-24
+  response->root_delay = 0;
+  response->root_delay_fb = 0;
+  response->dispersion = htons(dispersion.s16[TS_POS_S]);
+  response->dispersion_fb = htons(dispersion.s16[TS_POS_SUBS]);
+  response->ref_time = htonl(reftime);
+  response->ref_time_fb = 0;
 
-  if(!localClock_->getTime(recvTS, &packetBuffer_.recv_time, &packetBuffer_.recv_time_fb)) {
-    return; // clock not set yet
-  }
-  packetBuffer_.recv_time = htonl(packetBuffer_.recv_time);
-  packetBuffer_.recv_time_fb = htonl(packetBuffer_.recv_time_fb);
+  localClock_->getTime(request_buf->timestamp, &timestamp.parts[TS_POS_S], &timestamp.parts[TS_POS_SUBS]);
+  timestamp.whole += RX_TRAILER;
 
-  udp_->beginPacket(src, port);
+  response->recv_time = htonl(timestamp.parts[TS_POS_S]);
+  response->recv_time_fb = htonl(timestamp.parts[TS_POS_SUBS]);
 
-  txTS = COUNTERFUNC();
-  if(!localClock_->getTime(txTS, &packetBuffer_.trans_time, &packetBuffer_.trans_time_fb)) {
-    udp_->endPacket();
-    return; // clock not set yet
+#ifdef NTP_INTERLEAVED
+// TODO: interleaved mode
+  if(request->org_time != 0) {
+    interleavedClient = clientList.findClient(ntohl(addr->u_addr.ip4.addr), ntohl(request->org_time), ntohl(request->org_time_fb));
+  } else {
+    interleavedClient = NULL;
   }
-  packetBuffer_.trans_time = htonl(packetBuffer_.trans_time);
-  packetBuffer_.trans_time_fb = htonl(packetBuffer_.trans_time_fb);
-  udp_->write((char *)&packetBuffer_, sizeof(struct ntp_packet));
-  udp_->endPacket();
+  if(interleavedClient && interleavedClient->tx_s != 0) {
+    // interleaved mode
+    response->org_time = request->recv_time;
+    response->org_time_fb = request->recv_time_fb;
+
+    start_tx.parts[TS_POS_S] = interleavedClient->tx_s;
+    start_tx.parts[TS_POS_SUBS] = interleavedClient->tx_subs;
+    start_tx.whole += TX_PHY;
+
+    response->trans_time = htonl(start_tx.parts[TS_POS_S]);
+    response->trans_time_fb = htonl(start_tx.parts[TS_POS_SUBS]);
+  } else {
+#endif
+    // basic mode
+    response->org_time = request->trans_time;
+    response->org_time_fb = request->trans_time_fb;
+
+    lastTxSoft = COUNTERFUNC();
+    localClock_->getTime(lastTxSoft, &timestamp.parts[TS_POS_S], &timestamp.parts[TS_POS_SUBS]);
+    timestamp.whole += TX_DELAY;
+
+    response->trans_time = htonl(timestamp.parts[TS_POS_S]);
+    response->trans_time_fb = htonl(timestamp.parts[TS_POS_SUBS]);
+#ifdef NTP_INTERLEAVED
+  }
+#endif
+
+  enet_txTimestampNextPacket();
+  udp_sendto(ntp_pcb, response_buf, addr, port);
+
+#ifdef NTP_INTERLEAVED
+  clientList.addRx(ntohl(addr->u_addr.ip4.addr), port, request_buf->ts.parts[TS_POS_S], request_buf->ts.parts[TS_POS_SUBS]);
+#endif
+}
+
+static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
+  struct pbuf *response = pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
+  if(!response) {
+    pbuf_free(p);
+    return;
+  }
+  server.recv(p, response, addr, port);
+  pbuf_free(p);
+  pbuf_free(response);
+}
+
+NTPServer::NTPServer(NTPClock *localClock) {
+  localClock_ = localClock;
+  ntp_pcb = NULL;
+  dispersion.s32 = 0xffffffff;
+  reftime = 0;
+  lastTxSoft = 0;
+  lastTxHard = 0;
+}
+
+void NTPServer::setReftime(uint32_t newRef) {
+  reftime = newRef;
+}
+
+void NTPServer::setDispersion(uint32_t newDispersion) {
+  dispersion.s32 = newDispersion;
+}
+
+void NTPServer::addTxTimestamp(uint32_t ts) {
+  lastTxHard = ts;
+}
+
+static void interrupt_tx_timestamp(uint32_t ts) {
+  server.addTxTimestamp(ts);
+}
+
+void NTPServer::setup() {
+  enet_set_tx_timestamp_callback(&interrupt_tx_timestamp);
+  ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+  udp_recv(ntp_pcb, ntp_recv, NULL);
+  udp_bind(ntp_pcb, IP_ANY_TYPE, NTP_PORT);
 }

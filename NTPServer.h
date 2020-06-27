@@ -14,6 +14,7 @@
 #define NTP_MODE_BROADC 5
 #define NTP_MODE_CTRL   6
 #define NTP_MODE_PRIV   7
+#define NTP_PORT        123
 
 extern "C" {
   struct ntp_packet {
@@ -41,11 +42,23 @@ extern "C" {
 
 class NTPServer {
   public:
-    NTPServer(WiFiUDP *udp, NTPClock *localClock): udp_(udp), localClock_(localClock) {};
-    void poll();
+    NTPServer(NTPClock *localClock);
+    void recv(struct pbuf *request_buf, struct pbuf *response_buf, const ip_addr_t *addr, uint16_t port);
+    void setup();
+    void setDispersion(uint32_t newDispersion);
+    void setReftime(uint32_t newRef);
+    void addTxTimestamp(uint32_t ts);
+    uint32_t txDelay() { return lastTxHard - lastTxSoft; };
 
   private:
-    WiFiUDP *udp_;
     NTPClock *localClock_;
-    struct ntp_packet packetBuffer_; //buffer to hold incoming and outgoing packets
+    struct udp_pcb *ntp_pcb;
+    union {
+      uint16_t s16[2];
+      uint32_t s32;
+    } dispersion;
+    uint32_t reftime;
+    uint32_t lastTxSoft, lastTxHard;
 };
+
+extern NTPServer server;

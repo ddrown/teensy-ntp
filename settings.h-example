@@ -1,5 +1,0 @@
-#pragma once
-
-const char ssid[] = "SSID";
-const char ssidPass[] = "PASS";
-const char logDestinationIP[] = "10.1.2.17";
