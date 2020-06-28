@@ -18,7 +18,7 @@
 // "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
 // 105 ns
 #define TX_PHY 451
-// "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
+// "SSD symbol on MDI to Slave RMII Rising edge of XI clock with assertion of CRS_DV (100M)"
 // 350ns
 #define RX_PHY 1503
 
