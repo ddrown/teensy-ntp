@@ -27,3 +27,5 @@ class NTPClock {
     int32_t ppb_;
     uint32_t refTime_;
 };
+
+extern NTPClock localClock;

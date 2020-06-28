@@ -3,6 +3,7 @@
 #include "lwip/udp.h"
 #include "NTPClock.h"
 #include "NTPServer.h"
+#include "NTPClients.h"
 #include "platform-clock.h"
 
 #define TS_POS_S 1
@@ -13,15 +14,20 @@
 #define RX_TRAILER 32298
 // delay between TX software timestamp and udp_sendto sending packet
 #define TX_DELAY 16492
+// From DP83825I datasheet, page 10
+// "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
+// 105 ns
+#define TX_PHY 451
+// "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
+// 350ns
+#define RX_PHY 1503
 
 void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const ip_addr_t *addr, uint16_t port) {
   union {
     uint32_t parts[2];
     uint64_t whole;
-  } timestamp;
-#ifdef NTP_INTERLEAVED
+  } RXtimestamp, TXtimestamp;
   struct client *interleavedClient;
-#endif
 
   // drop too small packets
   if(request_buf->len < sizeof(struct ntp_packet)) {
@@ -30,7 +36,7 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
 
   struct ntp_packet *request = (struct ntp_packet *)request_buf->payload;
   struct ntp_packet *response = (struct ntp_packet *)response_buf->payload;
-  
+
   if(request->version < 2 || request->version > 4) {
     return; // unknown version
   }
@@ -63,16 +69,17 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   response->ref_time = htonl(reftime);
   response->ref_time_fb = 0;
 
-  localClock_->getTime(request_buf->timestamp, &timestamp.parts[TS_POS_S], &timestamp.parts[TS_POS_SUBS]);
-  timestamp.whole += RX_TRAILER;
+  localClock_->getTime(request_buf->timestamp, &RXtimestamp.parts[TS_POS_S], &RXtimestamp.parts[TS_POS_SUBS]);
+  RXtimestamp.whole += RX_TRAILER - RX_PHY;
 
-  response->recv_time = htonl(timestamp.parts[TS_POS_S]);
-  response->recv_time_fb = htonl(timestamp.parts[TS_POS_SUBS]);
+  response->recv_time = htonl(RXtimestamp.parts[TS_POS_S]);
+  response->recv_time_fb = htonl(RXtimestamp.parts[TS_POS_SUBS]);
 
-#ifdef NTP_INTERLEAVED
-// TODO: interleaved mode
+  lastTxAddr = ntohl(addr->addr);
+  lastTxPort = port;
+
   if(request->org_time != 0) {
-    interleavedClient = clientList.findClient(ntohl(addr->u_addr.ip4.addr), ntohl(request->org_time), ntohl(request->org_time_fb));
+    interleavedClient = clientList.findClient(lastTxAddr, ntohl(request->org_time), ntohl(request->org_time_fb));
   } else {
     interleavedClient = NULL;
   }
@@ -81,34 +88,28 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
     response->org_time = request->recv_time;
     response->org_time_fb = request->recv_time_fb;
 
-    start_tx.parts[TS_POS_S] = interleavedClient->tx_s;
-    start_tx.parts[TS_POS_SUBS] = interleavedClient->tx_subs;
-    start_tx.whole += TX_PHY;
+    TXtimestamp.parts[TS_POS_S] = interleavedClient->tx_s;
+    TXtimestamp.parts[TS_POS_SUBS] = interleavedClient->tx_subs;
+    TXtimestamp.whole += TX_PHY;
 
-    response->trans_time = htonl(start_tx.parts[TS_POS_S]);
-    response->trans_time_fb = htonl(start_tx.parts[TS_POS_SUBS]);
+    response->trans_time = htonl(TXtimestamp.parts[TS_POS_S]);
+    response->trans_time_fb = htonl(TXtimestamp.parts[TS_POS_SUBS]);
   } else {
-#endif
     // basic mode
     response->org_time = request->trans_time;
     response->org_time_fb = request->trans_time_fb;
 
-    lastTxSoft = COUNTERFUNC();
-    localClock_->getTime(lastTxSoft, &timestamp.parts[TS_POS_S], &timestamp.parts[TS_POS_SUBS]);
-    timestamp.whole += TX_DELAY;
+    localClock_->getTime(&TXtimestamp.parts[TS_POS_S], &TXtimestamp.parts[TS_POS_SUBS]);
+    TXtimestamp.whole += TX_DELAY + TX_PHY;
 
-    response->trans_time = htonl(timestamp.parts[TS_POS_S]);
-    response->trans_time_fb = htonl(timestamp.parts[TS_POS_SUBS]);
-#ifdef NTP_INTERLEAVED
+    response->trans_time = htonl(TXtimestamp.parts[TS_POS_S]);
+    response->trans_time_fb = htonl(TXtimestamp.parts[TS_POS_SUBS]);
   }
-#endif
 
   enet_txTimestampNextPacket();
   udp_sendto(ntp_pcb, response_buf, addr, port);
 
-#ifdef NTP_INTERLEAVED
-  clientList.addRx(ntohl(addr->u_addr.ip4.addr), port, request_buf->ts.parts[TS_POS_S], request_buf->ts.parts[TS_POS_SUBS]);
-#endif
+  clientList.addRx(lastTxAddr, lastTxPort, RXtimestamp.parts[TS_POS_S], RXtimestamp.parts[TS_POS_SUBS]);
 }
 
 static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
@@ -127,8 +128,8 @@ NTPServer::NTPServer(NTPClock *localClock) {
   ntp_pcb = NULL;
   dispersion.s32 = 0xffffffff;
   reftime = 0;
-  lastTxSoft = 0;
-  lastTxHard = 0;
+  lastTxAddr = 0;
+  lastTxPort = 0;
 }
 
 void NTPServer::setReftime(uint32_t newRef) {
@@ -140,7 +141,9 @@ void NTPServer::setDispersion(uint32_t newDispersion) {
 }
 
 void NTPServer::addTxTimestamp(uint32_t ts) {
-  lastTxHard = ts;
+  uint32_t sec, subsec;
+  localClock_->getTime(ts, &sec, &subsec);
+  clientList.addTx(lastTxAddr, lastTxPort, sec, subsec);
 }
 
 static void interrupt_tx_timestamp(uint32_t ts) {

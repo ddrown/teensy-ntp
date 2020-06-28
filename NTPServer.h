@@ -48,7 +48,6 @@ class NTPServer {
     void setDispersion(uint32_t newDispersion);
     void setReftime(uint32_t newRef);
     void addTxTimestamp(uint32_t ts);
-    uint32_t txDelay() { return lastTxHard - lastTxSoft; };
 
   private:
     NTPClock *localClock_;
@@ -58,7 +57,8 @@ class NTPServer {
       uint32_t s32;
     } dispersion;
     uint32_t reftime;
-    uint32_t lastTxSoft, lastTxHard;
+    uint32_t lastTxAddr;
+    uint16_t lastTxPort;
 };
 
 extern NTPServer server;

@@ -7,6 +7,7 @@
 #include "NTPClock.h"
 #include "ClockPID.h"
 #include "NTPServer.h"
+#include "NTPClients.h"
 #include "platform-clock.h"
 
 #define GPS_BAUD 115200
@@ -15,6 +16,7 @@
 
 GPSDateTime gps(&GPS_SERIAL);
 NTPClock localClock;
+NTPClients clientList;
 InputCapture pps;
 elapsedMillis msec;
 uint32_t compileTime;
@@ -182,6 +184,9 @@ static void slower_poll() {
 
     // check link state, update dhcp, etc
     enet_poll();
+
+    // remove old NTP clients
+    clientList.expireClients();
 
     msec = 0;
   }
