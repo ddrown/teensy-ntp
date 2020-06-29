@@ -5,6 +5,8 @@ class GPSDateTime {
   GPSDateTime(Stream *gpsUart): tmp(""), gpsUart_(gpsUart), validCode(false), dateMillis(0) {  };
   void commit(void);
   void time(String time);
+  void rmctime(String timestr);
+  void rmcdate(String datestr);
   uint16_t hour();
   uint16_t minute();
   uint16_t second();

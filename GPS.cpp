@@ -6,6 +6,10 @@
 
 #define GPS_CODE_ZDA "GPZDA"
 #define GPS_CODE2_ZDA "GNZDA"
+#define GPS_CODE_RMC "GPRMC"
+
+// enable this for things like the MTK3339/Adafruit Ultimate GPS
+//#define GPS_USES_RMC
  
 /**
  * Save new date and time to private variables
@@ -49,6 +53,17 @@ void GPSDateTime::year(String year) {
 }
 uint16_t GPSDateTime::year(void) { return year_; };
 
+void GPSDateTime::rmctime(String timestr) {
+  newTime_ = timestr.toFloat() * 100;
+}
+
+void GPSDateTime::rmcdate(String datestr) {
+  int date = datestr.toInt();
+  newDay_ = date / 10000;
+  newMonth_ = (date / 100) % 100;
+  newYear_ = date % 100 + 2000;
+}
+
 /**
  * Decode NMEA line to date and time
  * $GPZDA,174304.36,24,11,2015,00,00*66
@@ -78,24 +93,44 @@ bool GPSDateTime::decode() {
     // determinator between values
     switch (count_) {
       case 0: // ID
+#ifdef GPS_USES_RMC
+        if (tmp.equals(GPS_CODE_RMC)) {
+          validCode = true;
+#else // GPS_USES_RMC
         if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
           validCode = true;
+#endif
         } else {
           validCode = false;
         }
         break;
       case 1: // time
+#ifdef GPS_USES_RMC
+        this->rmctime(tmp);
+#else
         this->time(tmp);
+#endif
         break;
       case 2: // day
+#ifndef GPS_USES_RMC
         this->day(tmp);
+#endif
         break;
       case 3: // month
+#ifndef GPS_USES_RMC
         this->month(tmp);
+#endif
         break;
       case 4: // year
+#ifndef GPS_USES_RMC
         this->year(tmp);
+#endif
         break;
+#ifdef GPS_USES_RMC
+      case 9:
+        this->rmcdate(tmp);
+        break;
+#endif
       case 5: // timezone fields are ignored
       case 6:
       default:
