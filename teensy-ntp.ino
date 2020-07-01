@@ -123,13 +123,13 @@ void updateTime(uint32_t gpstime) {
   }
 
   uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
-  Serial.print("LAG ");
-  Serial.print(ppsToGPS);
-  Serial.print(" ");
-  Serial.print(gps.ppsMillis());
-  Serial.print(" ");
-  Serial.println(gpstime);
   if(ppsToGPS > 950) { // allow 950ms between PPS and GPS message
+    Serial.print("LAG ");
+    Serial.print(ppsToGPS);
+    Serial.print(" ");
+    Serial.print(gps.ppsMillis());
+    Serial.print(" ");
+    Serial.println(gpstime);
     return;
   }
 
