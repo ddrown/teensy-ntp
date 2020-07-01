@@ -3,10 +3,12 @@
 #include <Arduino.h>
 #include "DateTime.h"
 #include "GPS.h"
+#include "InputCapture.h"
 
 #define GPS_CODE_ZDA "GPZDA"
 #define GPS_CODE2_ZDA "GNZDA"
 #define GPS_CODE_RMC "GPRMC"
+#define GPS_CODE_GGA "GPGGA"
 
 // enable this for things like the MTK3339/Adafruit Ultimate GPS
 //#define GPS_USES_RMC
@@ -19,7 +21,11 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
+#ifndef GPS_USES_RMC
+  ppsCounter_ = pps.getCount();
+  ppsMillis_ = pps.getMillis();
   dateMillis = millis();
+#endif
 }
 
 void GPSDateTime::time(String time) {
@@ -96,6 +102,11 @@ bool GPSDateTime::decode() {
 #ifdef GPS_USES_RMC
         if (tmp.equals(GPS_CODE_RMC)) {
           validCode = true;
+        } else if (tmp.equals(GPS_CODE_GGA)) {
+          ppsCounter_ = pps.getCount();
+          ppsMillis_ = pps.getMillis();
+          dateMillis = millis();
+          validCode = false;
 #else // GPS_USES_RMC
         if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
           validCode = true;

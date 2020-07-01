@@ -19,6 +19,8 @@ class GPSDateTime {
   DateTime GPSnow();
   bool decode();
   uint32_t capturedAt() { return dateMillis; };
+  uint32_t ppsCounter() { return ppsCounter_; };
+  uint32_t ppsMillis() { return ppsMillis_; };
 
  protected:
   uint32_t newTime_;
@@ -41,7 +43,7 @@ class GPSDateTime {
   bool validString;
   bool isUpdated_;
   bool getFlag_;
-  uint32_t dateMillis;
+  uint32_t dateMillis, ppsCounter_, ppsMillis_;
 
   bool debug_;
   String msg;

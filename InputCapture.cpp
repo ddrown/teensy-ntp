@@ -1,8 +1,6 @@
 #include <Arduino.h>
 #include "InputCapture.h"
 
-extern InputCapture pps;
-
 #define ENET_TCSR_TPWC(n)          (((n) & 0b11111)<<11)
 #define ENET_TCSR_TF               (1<<7)
 #define ENET_TCSR_TIE              (1<<6)

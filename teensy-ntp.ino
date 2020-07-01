@@ -118,20 +118,22 @@ static uint32_t ntp64_to_32(int64_t offset) {
 }
 
 void updateTime(uint32_t gpstime) {
-  if(pps.getMillis() == 0) {
+  if(gps.ppsMillis() == 0) {
     return;
   }
 
-  uint32_t ppsToGPS = millis() - pps.getMillis();
+  uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
+  Serial.print("LAG ");
+  Serial.print(ppsToGPS);
+  Serial.print(" ");
+  Serial.print(gps.ppsMillis());
+  Serial.print(" ");
+  Serial.println(gpstime);
   if(ppsToGPS > 950) { // allow 950ms between PPS and GPS message
-    Serial.print("LAG ");
-    Serial.print(ppsToGPS);
-    Serial.print(" ");
-    Serial.println(gpstime);
     return;
   }
 
-  uint32_t lastPPS = pps.getCount();
+  uint32_t lastPPS = gps.ppsCounter();
   if(settime) {
     int64_t offset = localClock.getOffset(lastPPS, gpstime, 0);
     samples[wait].offset = offset;

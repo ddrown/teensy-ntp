@@ -14,3 +14,5 @@ class InputCapture {
     uint32_t lastMillis;
     uint32_t captures;
 };
+
+extern InputCapture pps;
