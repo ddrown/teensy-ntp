@@ -4,14 +4,12 @@
 #include "DateTime.h"
 #include "GPS.h"
 #include "InputCapture.h"
+#include "settings.h"
 
 #define GPS_CODE_ZDA "GPZDA"
 #define GPS_CODE2_ZDA "GNZDA"
 #define GPS_CODE_RMC "GPRMC"
 #define GPS_CODE_GGA "GPGGA"
-
-// enable this for things like the MTK3339/Adafruit Ultimate GPS
-//#define GPS_USES_RMC
  
 /**
  * Save new date and time to private variables

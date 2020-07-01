@@ -10,8 +10,9 @@
 #include "NTPClients.h"
 #include "platform-clock.h"
 
-#define GPS_BAUD 115200
-#define GPS_SERIAL Serial1
+// see the settings file for common settings
+#include "settings.h"
+
 #define WAIT_COUNT 3
 
 GPSDateTime gps(&GPS_SERIAL);

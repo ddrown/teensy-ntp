@@ -5,6 +5,6 @@ Hardware:
 Software:
 * put https://github.com/ddrown/teensy41_ethernet in your Arduino libraries folder
 
-For the GPS module, you just need PPS, serial output at 115200, and ZDA NMEA messages enabled.  If you need a different GPS serial speed, adjust `BAUD_SERIAL`
+For the GPS module, you just need PPS, serial output at 115200, and ZDA NMEA messages enabled.  If you need a different GPS serial speed or need to use the RMC NMEA message, see the `settings.h` file.
 
 For tests, see the `test/` directory.  It uses the ArduinoFake mock environment, which uses the FakeIt mock system and Unity unit tests.
