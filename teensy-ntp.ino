@@ -56,7 +56,7 @@ void setup() {
   netif_set_status_callback(netif_default, netif_status_callback);
   netif_set_link_callback(netif_default, link_status_callback);
   netif_set_up(netif_default);
-  netif_set_hostname(netif_default, "teensy41");
+  netif_set_hostname(netif_default, DHCP_HOSTNAME);
   dhcp_start(netif_default);
 
   Serial.println("waiting for link");
