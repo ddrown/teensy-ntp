@@ -41,7 +41,6 @@ static void link_status_callback(struct netif *netif) {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) delay(10); // wait for usb serial
 
   DateTime compile = DateTime(__DATE__, __TIME__);
 
