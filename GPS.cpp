@@ -19,6 +19,7 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
+  // RMC takes the PPS snapshot on the GPS_CODE_GGA message
 #ifndef GPS_USES_RMC
   ppsCounter_ = pps.getCount();
   ppsMillis_ = pps.getMillis();

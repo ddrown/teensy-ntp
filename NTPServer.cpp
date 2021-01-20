@@ -12,7 +12,7 @@
 // the values below are in 2^32 fractional second units
 // adjusting from preamble timestamp to trailer timestamp: 752 bits at 100M
 #define RX_TRAILER 32298
-// delay between TX software timestamp and udp_sendto sending packet
+// estimate of delay between TX software timestamp and udp_sendto sending packet, for non-interleaved clients
 #define TX_DELAY 16492
 // From DP83825I datasheet, page 10
 // "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
