@@ -9,6 +9,8 @@
 #include "NTPServer.h"
 #include "NTPClients.h"
 #include "platform-clock.h"
+#include "WebServer.h"
+#include "WebContent.h"
 
 // see the settings file for common settings
 #include "settings.h"
@@ -73,6 +75,9 @@ void setup() {
   // allow for compile timezone to be 12 hours ahead
   compileTime -= 12*60*60;
 
+  webserver.begin();
+  webcontent.begin();
+
   while(GPS_SERIAL.available()) { // throw away all the text received while starting up
     GPS_SERIAL.read();
   }
@@ -123,6 +128,7 @@ void updateTime(uint32_t gpstime) {
   }
 
   uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
+  webcontent.setPPSData(ppsToGPS, gps.ppsMillis(), gpstime);
   if(ppsToGPS > 950) { // allow 950ms between PPS and GPS message
     Serial.print("LAG ");
     Serial.print(ppsToGPS);
@@ -156,6 +162,7 @@ void updateTime(uint32_t gpstime) {
       server.setReftime(samples[median_index].gpstime);
 
       double offsetHuman = samples[median_index].offset / (double)4294967296.0;
+      webcontent.setLocalClock(samples[median_index].pps, offsetHuman, ClockPID.d(), ClockPID.d_chi(), localClock.getPpb(), gpstime);
       Serial.print(samples[median_index].pps);
       Serial.print(" ");
       Serial.print(offsetHuman, 9);
