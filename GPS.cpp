@@ -25,6 +25,16 @@ void GPSDateTime::commit() {
   ppsMillis_ = pps.getMillis();
   dateMillis = millis();
 #endif
+  if(sawGSV) { // sometimes GSV doesn't come every second
+    strongSignal = strongSignalNext;
+    weakSignal = weakSignalNext;
+    noSignal = noSignalNext;
+    sawGSV = false;
+    satellites_copy = (satellites_copy + 1) % 2;
+    satellites[satellites_copy][satellites_i].id = 0;
+    satellites_i = 0;
+  }
+  strongSignalNext = weakSignalNext = noSignalNext = 0;
 }
 
 void GPSDateTime::time(String time) {
@@ -69,11 +79,101 @@ void GPSDateTime::rmcdate(String datestr) {
   newYear_ = date % 100 + 2000;
 }
 
+void GPSDateTime::decodeType() {
+#ifdef GPS_USES_RMC
+  if (tmp.equals(GPS_CODE_RMC)) {
+    validCode = inTimeCode;
+  } else if (tmp.equals(GPS_CODE_GGA)) {
+    ppsCounter_ = pps.getCount();
+    ppsMillis_ = pps.getMillis();
+    dateMillis = millis();
+    validCode = waitDollar;
+#else // GPS_USES_RMC
+  if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
+    validCode = inTimeCode;
+#endif
+  } else if (tmp.length() == 5 && tmp[2] == 'G' && tmp[3] == 'S' && tmp[4] == 'A') {
+    validCode = inGSA;
+  } else if (tmp.length() == 5 && tmp[2] == 'G' && tmp[3] == 'S' && tmp[4] == 'V') {
+    sawGSV = true;
+    validCode = inGSV;
+  } else {
+    validCode = waitDollar;
+  }
+}
+
+void GPSDateTime::decodeTimeCode() {
+#ifdef GPS_USES_RMC
+  // example $GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20
+  switch (count_) {
+    case 1: // time
+      this->rmctime(tmp);
+      break;
+    case 9:
+      this->rmcdate(tmp);
+      break;
+    default:
+      break;
+  }
+#else
+  // example $GPZDA,174304.36,24,11,2015,00,00*66
+  switch (count_) {
+    case 1: // time
+      this->time(tmp);
+      break;
+    case 2: // day
+      this->day(tmp);
+      break;
+    case 3: // month
+      this->month(tmp);
+      break;
+    case 4: // year
+      this->year(tmp);
+      break;
+    default:
+      break;
+  }
+#endif
+}
+
+void GPSDateTime::decodeGSA() {
+  if(count_ == 2) {
+    lockStatus_ = tmp.toInt();
+  }
+}
+
+void GPSDateTime::decodeGSV() {
+  uint8_t writeCopy = (satellites_copy + 1) % 2;
+  if(count_ > 3 && count_ < 20) {
+    switch(count_ % 4) {
+      case 0: // id
+        satellites[writeCopy][satellites_i].id = tmp.toInt();
+        break;
+      case 1: // elevation from horizon in degrees
+        satellites[writeCopy][satellites_i].elevation = tmp.toInt();
+        break;
+      case 2: // azimuth from clockwise north in degrees
+        satellites[writeCopy][satellites_i].azimuth = tmp.toInt();
+        break;
+      case 3: // snr
+        satellites[writeCopy][satellites_i].snr = tmp.toInt();
+        if(satellites[writeCopy][satellites_i].snr >= 25) {
+          strongSignalNext++;
+        } else if(satellites[writeCopy][satellites_i].snr >= 10) {
+          weakSignalNext++;
+        } else {
+          noSignalNext++;
+        }
+
+        if(satellites_i < MAX_SATELLITES-1) satellites_i++;
+        break;
+    }
+  }
+}
+
 /**
- * Decode NMEA line to date and time
- * $GPZDA,174304.36,24,11,2015,00,00*66
- * $0    ,1        ,2 ,3 ,4   ,5 ,6 *7  <-- pos
- * @return line decoded
+ * Decode NMEA lines
+ * @return true: finished decoding date&time
  */
 bool GPSDateTime::decode() {
   char c = gpsUart_->read();
@@ -84,66 +184,31 @@ bool GPSDateTime::decode() {
     msg = "$";
     count_ = 0;
     parity_ = 0;
-    validCode = true;
+    validCode = getType;
     isNotChecked = true;
     isUpdated_ = false;
     return false;
   }
 
-  if (!validCode) {
+  if (validCode == waitDollar) {
     return false;
   }
   msg += c;
   if (c == ',' || c == '*') {
-    // determinator between values
-    switch (count_) {
-      case 0: // ID
-#ifdef GPS_USES_RMC
-        if (tmp.equals(GPS_CODE_RMC)) {
-          validCode = true;
-        } else if (tmp.equals(GPS_CODE_GGA)) {
-          ppsCounter_ = pps.getCount();
-          ppsMillis_ = pps.getMillis();
-          dateMillis = millis();
-          validCode = false;
-#else // GPS_USES_RMC
-        if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
-          validCode = true;
-#endif
-        } else {
-          validCode = false;
-        }
+    switch(validCode) {
+      case getType:
+        decodeType();
         break;
-      case 1: // time
-#ifdef GPS_USES_RMC
-        this->rmctime(tmp);
-#else
-        this->time(tmp);
-#endif
+      case inTimeCode:
+        decodeTimeCode();
         break;
-      case 2: // day
-#ifndef GPS_USES_RMC
-        this->day(tmp);
-#endif
+      case inGSA:
+        decodeGSA();
         break;
-      case 3: // month
-#ifndef GPS_USES_RMC
-        this->month(tmp);
-#endif
+      case inGSV:
+        decodeGSV();
         break;
-      case 4: // year
-#ifndef GPS_USES_RMC
-        this->year(tmp);
-#endif
-        break;
-#ifdef GPS_USES_RMC
-      case 9:
-        this->rmcdate(tmp);
-        break;
-#endif
-      case 5: // timezone fields are ignored
-      case 6:
-      default:
+      case waitDollar:
         break;
     }
     if (c == ',') {
@@ -163,16 +228,20 @@ bool GPSDateTime::decode() {
     validString = checkParity.equals(checksum);
 
     if (validString) {
-      this->commit();
-      isUpdated_ = true;
+      if(validCode == inTimeCode) {
+        this->commit();
+        isUpdated_ = true;
+      }
       // commit datetime
     }
 
     // end of string
+    msg = "\0";
     tmp = "\0";
     count_ = 0;
     parity_ = 0;
-    return validString;
+    validCode = waitDollar;
+    return isUpdated_;
   } else {
     // ordinary char
     tmp += c;
