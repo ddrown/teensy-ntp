@@ -64,12 +64,15 @@ const char *WebContent::jsonState() {
     return jsonBuffer;
   }
   offset += snprintf(jsonBuffer + offset, sizeof(jsonBuffer) - offset,
-      "\"lockStatus\": %u, \"strongSignals\": %lu, \"weakSignals\": %lu, \"noSignals\": %lu, \"gpsCaptured\": %lu, \"satellites\": [",
+      "\"lockStatus\": %u, \"strongSignals\": %lu, \"weakSignals\": %lu, \"noSignals\": %lu, \"gpsCaptured\": %lu, \"pdop\": %.1f, \"hdop\": %.1f, \"vdop\": %.1f, \"satellites\": [",
       gps.lockStatus(),
       gps.strongSignals(),
       gps.weakSignals(),
       gps.noSignals(),
-      gps.capturedAt()
+      gps.capturedAt(),
+      gps.getPdop(),
+      gps.getHdop(),
+      gps.getVdop()
       );
   if (offset >= total) {
     jsonBuffer[sizeof(jsonBuffer)-1] = '\0';

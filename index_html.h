@@ -23,5 +23,6 @@ static const PROGMEM char indexHTML[] = R"HTML(<html><head>
 <p>PID output: <span id='clockPpb'></span> ns/s (ppb)</p>
 <p>GPS lock Status: <span id='lockStatus'></span></p>
 <p>GPS Strong signals (&gt; 25db): <span id='strongSignals'></span>, Weak Signals (10db-24db): <span id='weakSignals'></span>, No Signal (0db-9db): <span id='noSignals'></span></p>
+<p>GPS pdop=<span id='pdop'></span>, hdop=<span id='hdop'></span>, vdop=<span id='vdop'></span></p>
 </body></html>
 )HTML";

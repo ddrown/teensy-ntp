@@ -164,6 +164,9 @@ $GPZDA,031700.000,17,12,2019,00,00*5C
     TEST_ASSERT_EQUAL(expected1[i].elevation, l[i].elevation);
     TEST_ASSERT_EQUAL(expected1[i].snr, l[i].snr);
   }
+  TEST_ASSERT_EQUAL(1.4, gps.getPdop());
+  TEST_ASSERT_EQUAL(0.8, gps.getHdop());
+  TEST_ASSERT_EQUAL(1.2, gps.getVdop());
 
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
 
@@ -186,6 +189,9 @@ $GPZDA,031700.000,17,12,2019,00,00*5C
     TEST_ASSERT_EQUAL(expected2[i].elevation, l[i].elevation);
     TEST_ASSERT_EQUAL(expected2[i].snr, l[i].snr);
   }
+  TEST_ASSERT_EQUAL(1.4, gps.getPdop());
+  TEST_ASSERT_EQUAL(0.72, gps.getHdop());
+  TEST_ASSERT_EQUAL(1.2, gps.getVdop());
 }
 
 int main() {

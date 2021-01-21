@@ -137,8 +137,20 @@ void GPSDateTime::decodeTimeCode() {
 }
 
 void GPSDateTime::decodeGSA() {
-  if(count_ == 2) {
-    lockStatus_ = tmp.toInt();
+  // example $GPGSA,A,3,04,07,09,03,08,22,16,27,,,,,1.4,0.8,1.2*3F
+  switch(count_) {
+    case 2:
+      lockStatus_ = tmp.toInt();
+      break;
+    case 15:
+      pdop = tmp.toFloat();
+      break;
+    case 16:
+      hdop = tmp.toFloat();
+      break;
+    case 17:
+      vdop = tmp.toFloat();
+      break;
   }
 }
 

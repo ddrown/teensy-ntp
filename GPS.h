@@ -17,6 +17,7 @@ class GPSDateTime {
     satellites[0][0].id = satellites[0][0].azimuth = satellites[0][0].elevation = satellites[0][0].snr = 0;
     satellites_i = 0;
     satellites_copy = 0;
+    pdop = hdop = vdop = 0;
     sawGSV = false;
   };
   void commit(void);
@@ -42,6 +43,9 @@ class GPSDateTime {
   uint32_t weakSignals() { return weakSignal; };
   uint32_t noSignals() { return noSignal; };
   const struct satellite *getSatellites() { return satellites[satellites_copy]; };
+  float getPdop() { return pdop; };
+  float getHdop() { return hdop; };
+  float getVdop() { return vdop; };
 
  protected:
   uint32_t newTime_;
@@ -76,6 +80,7 @@ class GPSDateTime {
   uint8_t satellites_i;
   uint8_t satellites_copy;
   struct satellite satellites[2][MAX_SATELLITES];
+  float pdop, hdop, vdop;
 
   bool debug_;
   String msg;
