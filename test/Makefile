@@ -1,5 +1,5 @@
 ARDUINOFAKEDIR=../../ArduinoFake
-INCLUDES=-I$(ARDUINOFAKEDIR)/src/ -I$(ARDUINOFAKEDIR)/external/unity/unity-repo/src/ -I..
+INCLUDES=-I$(ARDUINOFAKEDIR)/src/ -I$(ARDUINOFAKEDIR)/external/unity/unity-repo/src/ -I.. -I.
 CXX_FLAGS = -Wfatal-errors -Wall -Wshadow -DCOUNTERFUNC=micros -DCOUNTSPERSECOND=1000000 -DNTPPID_KP=0.001 -DNTPPID_KI=0.001 -DNTPPID_KD=1.0
 
 TESTSRC=$(wildcard *.cpp)
