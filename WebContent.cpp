@@ -1,6 +1,11 @@
 #include <Arduino.h>
 #include "WebServer.h"
 #include "WebContent.h"
+#include "DateTime.h"
+#include "GPS.h"
+
+#include "index_html.h"
+#include "index_js.h"
 
 WebContent webcontent;
 
@@ -10,8 +15,13 @@ static const char *jsonState(const char *filename) {
 
 static const struct webpage webpages[] = {
   {
-    "See /state.json for current state",
+    indexHTML,
     "/index.html",
+    NULL
+  },
+  {
+    indexJS,
+    "/index.js",
     NULL
   },
   {
@@ -34,10 +44,11 @@ void WebContent::begin() {
 }
 
 const char *WebContent::jsonState() {
-  snprintf(
+  int total = sizeof(jsonBuffer);
+  int offset = snprintf(
     jsonBuffer,
-    sizeof(jsonBuffer), 
-    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld}",
+    sizeof(jsonBuffer),
+    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld,",
     ppsToGPS,
     ppsMillis,
     millis(),
@@ -48,6 +59,35 @@ const char *WebContent::jsonState() {
     dChiSq,
     clockPpb
   );
+  if (offset >= total) {
+    jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
+    return jsonBuffer;
+  }
+  offset += snprintf(jsonBuffer + offset, sizeof(jsonBuffer) - offset,
+      "\"lockStatus\": %u, \"strongSignals\": %lu, \"weakSignals\": %lu, \"noSignals\": %lu, \"gpsCaptured\": %lu, \"satellites\": [",
+      gps.lockStatus(),
+      gps.strongSignals(),
+      gps.weakSignals(),
+      gps.noSignals(),
+      gps.capturedAt()
+      );
+  if (offset >= total) {
+    jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
+    return jsonBuffer;
+  }
+
+  const struct satellite *satinfo = gps.getSatellites();
+  for(uint8_t i = 0; i < MAX_SATELLITES && satinfo[i].id; i++) {
+    const char *format = (i == 0) ? "[%u,%u,%u,%u]" : ",[%u,%u,%u,%u]";
+    offset += snprintf(jsonBuffer + offset, sizeof(jsonBuffer) - offset,
+        format, satinfo[i].id, satinfo[i].elevation, satinfo[i].azimuth, satinfo[i].snr
+        );
+    if (offset >= total) {
+      jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
+      return jsonBuffer;
+    }
+  }
+  snprintf(jsonBuffer + offset, sizeof(jsonBuffer) - offset, "]}");
   jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
   return jsonBuffer;
 }
