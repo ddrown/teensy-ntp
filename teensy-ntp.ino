@@ -21,7 +21,7 @@ GPSDateTime gps(&GPS_SERIAL);
 NTPClock localClock;
 NTPClients clientList;
 InputCapture pps;
-elapsedMillis msec;
+elapsedMillis msec, epoll_msec;
 uint32_t compileTime;
 uint8_t settime = 0;
 uint8_t wait = WAIT_COUNT-1;
@@ -33,38 +33,68 @@ struct {
 NTPServer server(&localClock);
 
 static void netif_status_callback(struct netif *netif) {
-  static char str1[IP4ADDR_STRLEN_MAX], str2[IP4ADDR_STRLEN_MAX], str3[IP4ADDR_STRLEN_MAX];
-  Serial.printf("netif status changed: ip %s, mask %s, gw %s\n", ip4addr_ntoa_r(netif_ip_addr4(netif), str1, IP4ADDR_STRLEN_MAX), ip4addr_ntoa_r(netif_ip_netmask4(netif), str2, IP4ADDR_STRLEN_MAX), ip4addr_ntoa_r(netif_ip_gw4(netif), str3, IP4ADDR_STRLEN_MAX));
+  static char str1[IP6ADDR_STRLEN_MAX] = "", str2[IP4ADDR_STRLEN_MAX] = "", str3[IP4ADDR_STRLEN_MAX] = "";
+  const ip_addr *ip;
+
+  ip = netif_ip_addr4(netif);
+  ip4addr_ntoa_r(&ip->u_addr.ip4, str1, IP4ADDR_STRLEN_MAX);
+
+  ip = netif_ip_netmask4(netif);
+  ip4addr_ntoa_r(&ip->u_addr.ip4, str2, IP4ADDR_STRLEN_MAX);
+
+  ip = netif_ip_gw4(netif);
+  ip4addr_ntoa_r(&ip->u_addr.ip4, str3, IP4ADDR_STRLEN_MAX);
+  Serial.printf("netif status changed: ip %s, mask %s, gw %s\r\n", str1, str2, str3);
+
+#if LWIP_IPV6
+  for(int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (netif_ip6_addr_state(netif, i) != 0) {
+      ip = netif_ip_addr6(netif, i);
+      str1[0] = '\0';
+      ip6addr_ntoa_r(&ip->u_addr.ip6, str1, IP6ADDR_STRLEN_MAX);
+      Serial.printf("v6: %s state %d\r\n", str1, netif_ip6_addr_state(netif, i));
+    }
+  }
+#endif
 }
 
 static void link_status_callback(struct netif *netif) {
-  Serial.printf("enet link status: %s\n", netif_is_link_up(netif) ? "up" : "down");
+  Serial.printf("enet link status: %s\r\n", netif_is_link_up(netif) ? "up" : "down");
+  if (netif_is_link_up(netif)) {
+    netif_set_up(netif);
+    dhcp_start(netif);
+#if LWIP_IPV6
+    netif_create_ip6_linklocal_address(netif, 1);
+    netif_set_ip6_autoconfig_enabled(netif, 1);
+#endif
+  }
+}
+
+void wait_for_serial() {
+  // don't wait forever in case usb doesn't come up
+  for (int i = 0; i < 20; i++) {
+    if (Serial) return;
+    delay(100);
+  }
 }
 
 void setup() {
   Serial.begin(115200);
 
-  DateTime compile = DateTime(__DATE__, __TIME__);
-
-  GPS_SERIAL.begin(GPS_BAUD);
+  wait_for_serial();
 
   Serial.println("Ethernet 1588 NTP Server");
   Serial.println("------------------------\n");
+
+  DateTime compile = DateTime(__DATE__, __TIME__);
+
+  GPS_SERIAL.begin(GPS_BAUD);
 
   enet_init(NULL, NULL, NULL);
 
   netif_set_status_callback(netif_default, netif_status_callback);
   netif_set_link_callback(netif_default, link_status_callback);
-  netif_set_up(netif_default);
   netif_set_hostname(netif_default, DHCP_HOSTNAME);
-  dhcp_start(netif_default);
-
-  Serial.println("waiting for link");
-  while (!netif_is_link_up(netif_default)) {
-    enet_proc_input(); // await on link up
-    enet_poll();
-    delay(1);
-  }
 
   pps.begin();
   server.setup();
@@ -82,6 +112,7 @@ void setup() {
     GPS_SERIAL.read();
   }
   msec = 0;
+  epoll_msec = 0;
 }
 
 static uint8_t median(int64_t one, int64_t two, int64_t three) {
@@ -187,13 +218,17 @@ void updateTime(uint32_t gpstime) {
 }
 
 static void slower_poll() {
+  if (epoll_msec >= 100) {
+    // check link state, update dhcp, etc
+    enet_poll();
+
+    epoll_msec = 0;
+  }
+
   if(msec >= 1000) {
     uint32_t s, s_fb;
     // update the local clock's cycle count
     localClock.getTime(COUNTERFUNC(),&s,&s_fb);
-
-    // check link state, update dhcp, etc
-    enet_poll();
 
     // remove old NTP clients
     clientList.expireClients();

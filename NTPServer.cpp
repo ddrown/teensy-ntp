@@ -75,10 +75,18 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   response->recv_time = htonl(RXtimestamp.parts[TS_POS_S]);
   response->recv_time_fb = htonl(RXtimestamp.parts[TS_POS_SUBS]);
 
-  lastTxAddr = ntohl(addr->addr);
+  if (addr->type == IPADDR_TYPE_V4) {
+    lastTxAddr = ntohl(ip_2_ip4(addr)->addr);
+#if LWIP_IPV6
+  } else {
+    // just use the lower 32 bits of the IPv6 address for now
+    // TODO: do this better
+    lastTxAddr = ip_2_ip6(addr)->addr[3];
+#endif
+  }
   lastTxPort = port;
 
-  if(request->org_time != 0) {
+  if(request->org_time != 0 && lastTxAddr != 0) {
     interleavedClient = clientList.findClient(lastTxAddr, ntohl(request->org_time), ntohl(request->org_time_fb));
   } else {
     interleavedClient = NULL;
@@ -109,7 +117,9 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   enet_txTimestampNextPacket();
   udp_sendto(ntp_pcb, response_buf, addr, port);
 
-  clientList.addRx(lastTxAddr, lastTxPort, RXtimestamp.parts[TS_POS_S], RXtimestamp.parts[TS_POS_SUBS]);
+  if (lastTxAddr != 0) {
+    clientList.addRx(lastTxAddr, lastTxPort, RXtimestamp.parts[TS_POS_S], RXtimestamp.parts[TS_POS_SUBS]);
+  }
 }
 
 static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
@@ -142,8 +152,11 @@ void NTPServer::setDispersion(uint32_t newDispersion) {
 
 void NTPServer::addTxTimestamp(uint32_t ts) {
   uint32_t sec, subsec;
-  localClock_->getTime(ts, &sec, &subsec);
-  clientList.addTx(lastTxAddr, lastTxPort, sec, subsec);
+  if (lastTxAddr != 0) {
+    localClock_->getTime(ts, &sec, &subsec);
+    clientList.addTx(lastTxAddr, lastTxPort, sec, subsec);
+    lastTxAddr = 0;
+  }
 }
 
 static void interrupt_tx_timestamp(uint32_t ts) {
