@@ -1,4 +1,5 @@
 #pragma once
+#include "NTPClients.h"
 
 #define NTP_LEAP_NONE   0
 #define NTP_LEAP_61S    1
@@ -57,7 +58,7 @@ class NTPServer {
       uint32_t s32;
     } dispersion;
     uint32_t reftime;
-    uint32_t lastTxAddr;
+    CLIENT_ADDR_T lastTxAddr;
     uint16_t lastTxPort;
 };
 

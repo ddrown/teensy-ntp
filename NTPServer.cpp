@@ -76,18 +76,21 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   response->recv_time_fb = htonl(RXtimestamp.parts[TS_POS_SUBS]);
 
   if (addr->type == IPADDR_TYPE_V4) {
-    lastTxAddr = ntohl(ip_2_ip4(addr)->addr);
-#if LWIP_IPV6
+#if !LWIP_IPV6
+    CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip4(addr));
+#else
+    lastTxAddr.addr[0] = 0;
+    lastTxAddr.addr[1] = 0;
+    lastTxAddr.addr[2] = 0;
+    lastTxAddr.addr[3] = ip_2_ip4(addr)->addr;
   } else {
-    // just use the lower 32 bits of the IPv6 address for now
-    // TODO: do this better
-    lastTxAddr = ip_2_ip6(addr)->addr[3];
+    CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip6(addr));
 #endif
   }
   lastTxPort = port;
 
-  if(request->org_time != 0 && lastTxAddr != 0) {
-    interleavedClient = clientList.findClient(lastTxAddr, ntohl(request->org_time), ntohl(request->org_time_fb));
+  if(request->org_time != 0 && !CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {
+    interleavedClient = clientList.findClient(&lastTxAddr, ntohl(request->org_time), ntohl(request->org_time_fb));
   } else {
     interleavedClient = NULL;
   }
@@ -117,8 +120,8 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   enet_txTimestampNextPacket();
   udp_sendto(ntp_pcb, response_buf, addr, port);
 
-  if (lastTxAddr != 0) {
-    clientList.addRx(lastTxAddr, lastTxPort, RXtimestamp.parts[TS_POS_S], RXtimestamp.parts[TS_POS_SUBS]);
+  if (!CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {
+    clientList.addRx(&lastTxAddr, lastTxPort, RXtimestamp.parts[TS_POS_S], RXtimestamp.parts[TS_POS_SUBS]);
   }
 }
 
@@ -138,7 +141,7 @@ NTPServer::NTPServer(NTPClock *localClock) {
   ntp_pcb = NULL;
   dispersion.s32 = 0xffffffff;
   reftime = 0;
-  lastTxAddr = 0;
+  CLIENT_ADDR_SET(&lastTxAddr, &zero_addr);
   lastTxPort = 0;
 }
 
@@ -152,10 +155,10 @@ void NTPServer::setDispersion(uint32_t newDispersion) {
 
 void NTPServer::addTxTimestamp(uint32_t ts) {
   uint32_t sec, subsec;
-  if (lastTxAddr != 0) {
+  if (!CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {
     localClock_->getTime(ts, &sec, &subsec);
-    clientList.addTx(lastTxAddr, lastTxPort, sec, subsec);
-    lastTxAddr = 0;
+    clientList.addTx(&lastTxAddr, lastTxPort, sec, subsec);
+    CLIENT_ADDR_SET(&lastTxAddr, &zero_addr);
   }
 }
 
