@@ -75,18 +75,18 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   response->recv_time = htonl(RXtimestamp.parts[TS_POS_S]);
   response->recv_time_fb = htonl(RXtimestamp.parts[TS_POS_SUBS]);
 
-  if (addr->type == IPADDR_TYPE_V4) {
 #if !LWIP_IPV6
-    CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip4(addr));
+  CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip4(addr));
 #else
+  if (addr->type == IPADDR_TYPE_V4) {
     lastTxAddr.addr[0] = 0;
     lastTxAddr.addr[1] = 0;
     lastTxAddr.addr[2] = 0;
     lastTxAddr.addr[3] = ip_2_ip4(addr)->addr;
   } else {
     CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip6(addr));
-#endif
   }
+#endif
   lastTxPort = port;
 
   if(request->org_time != 0 && !CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {

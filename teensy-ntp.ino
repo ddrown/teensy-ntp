@@ -33,26 +33,26 @@ struct {
 NTPServer server(&localClock);
 
 static void netif_status_callback(struct netif *netif) {
-  static char str1[IP6ADDR_STRLEN_MAX] = "", str2[IP4ADDR_STRLEN_MAX] = "", str3[IP4ADDR_STRLEN_MAX] = "";
-  const ip_addr *ip;
+  char str1[IP4ADDR_STRLEN_MAX] = "", str2[IP4ADDR_STRLEN_MAX] = "", str3[IP4ADDR_STRLEN_MAX] = "";
+  const ip_addr_t *ip;
 
   ip = netif_ip_addr4(netif);
-  ip4addr_ntoa_r(&ip->u_addr.ip4, str1, IP4ADDR_STRLEN_MAX);
+  ip4addr_ntoa_r(ip_2_ip4(ip), str1, IP4ADDR_STRLEN_MAX);
 
   ip = netif_ip_netmask4(netif);
-  ip4addr_ntoa_r(&ip->u_addr.ip4, str2, IP4ADDR_STRLEN_MAX);
+  ip4addr_ntoa_r(ip_2_ip4(ip), str2, IP4ADDR_STRLEN_MAX);
 
   ip = netif_ip_gw4(netif);
-  ip4addr_ntoa_r(&ip->u_addr.ip4, str3, IP4ADDR_STRLEN_MAX);
+  ip4addr_ntoa_r(ip_2_ip4(ip), str3, IP4ADDR_STRLEN_MAX);
   Serial.printf("netif status changed: ip %s, mask %s, gw %s\r\n", str1, str2, str3);
 
 #if LWIP_IPV6
   for(int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    char str6[IP6ADDR_STRLEN_MAX] = "";
     if (netif_ip6_addr_state(netif, i) != 0) {
       ip = netif_ip_addr6(netif, i);
-      str1[0] = '\0';
-      ip6addr_ntoa_r(&ip->u_addr.ip6, str1, IP6ADDR_STRLEN_MAX);
-      Serial.printf("v6: %s state %d\r\n", str1, netif_ip6_addr_state(netif, i));
+      ip6addr_ntoa_r(ip_2_ip6(ip), str6, IP6ADDR_STRLEN_MAX);
+      Serial.printf("v6: %s state %d\r\n", str6, netif_ip6_addr_state(netif, i));
     }
   }
 #endif
