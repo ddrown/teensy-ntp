@@ -102,8 +102,8 @@ void setup() {
   compileTime = compile.ntptime();
   // this needs to happen after enet_init, so the 1588 clock is running
   localClock.setTime(COUNTERFUNC(), compileTime);
-  // allow for compile timezone to be 12 hours ahead
-  compileTime -= 12*60*60;
+  // allow for compile timezone to be 14 hours ahead
+  compileTime -= 14*60*60;
 
   webserver.begin();
   webcontent.begin();
