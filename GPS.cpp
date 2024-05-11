@@ -246,12 +246,9 @@ bool GPSDateTime::decode() {
     tmp = "\0";
     count_++;
   } else if (c == '\r' || c == '\n') {
-    // carriage return, so check
-    String checksum = tmp;
-    String checkParity = String(parity_, HEX);
-    checkParity.toUpperCase();
-
-    validString = checkParity.equals(checksum);
+    // carriage return, so check for valid parity
+    uint8_t checksum = strtoul( tmp.c_str(), NULL, 16 );
+    validString = parity_ == checksum;
 
     if (validString) {
       if(validCode == inTimeCode) {

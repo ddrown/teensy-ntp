@@ -23,6 +23,23 @@ InputCapture::InputCapture() {
 void InputCapture::begin() {
 }
 
+void test_checksum() {
+  const char mockMessage[]  = "$GNZDA,031700.000,17,12,p019,00,00*00\r\n";
+  GPSDateTime gps(&Serial);
+  uint32_t i;
+
+  When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
+
+  for(i = 0; i < strlen(mockMessage); i++) {
+    When(Method(ArduinoFake(Serial), read)).Return(mockMessage[i]);
+    if(gps.decode()) {
+      break;
+    }
+  }
+  // should break at \r
+  TEST_ASSERT_EQUAL(strlen(mockMessage)-2, i);
+}
+
 void test_decode() {
   const char mockMessage[]  = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
   const char mockMessage2[] = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
@@ -198,5 +215,6 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_decode);
   RUN_TEST(test_satellites);
+  RUN_TEST(test_checksum);
   return UNITY_END();
 }
