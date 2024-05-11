@@ -61,6 +61,7 @@ class GPSDateTime {
   void decodeTimeCode();
   void decodeGSA();
   void decodeGSV();
+  bool tmp_is_code(const char *code);
 
   String tmp;
   Stream *gpsUart_;

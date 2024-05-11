@@ -6,10 +6,11 @@
 #include "InputCapture.h"
 #include "settings.h"
 
-#define GPS_CODE_ZDA "GPZDA"
-#define GPS_CODE2_ZDA "GNZDA"
-#define GPS_CODE_RMC "GPRMC"
-#define GPS_CODE_GGA "GPGGA"
+#define GPS_CODE_ZDA "ZDA"
+#define GPS_CODE_RMC "RMC"
+#define GPS_CODE_GGA "GGA"
+#define GPS_CODE_GSA "GSA"
+#define GPS_CODE_GSV "GSV"
  
 /**
  * Save new date and time to private variables
@@ -79,22 +80,35 @@ void GPSDateTime::rmcdate(String datestr) {
   newYear_ = date % 100 + 2000;
 }
 
+bool GPSDateTime::tmp_is_code(const char *code) {
+  if(tmp.length() != 5) {
+    return false;
+  }
+  if(tmp[0] != 'G') {
+    return false;
+  }
+  if(tmp[1] != 'P' && tmp[1] != 'N' && tmp[1] != 'L') {
+    return false;
+  }
+  return tmp.endsWith(code);
+}
+
 void GPSDateTime::decodeType() {
 #ifdef GPS_USES_RMC
-  if (tmp.equals(GPS_CODE_RMC)) {
+  if (tmp_is_code(GPS_CODE_RMC)) {
     validCode = inTimeCode;
-  } else if (tmp.equals(GPS_CODE_GGA)) {
+  } else if (tmp_is_code(GPS_CODE_GGA)) {
     ppsCounter_ = pps.getCount();
     ppsMillis_ = pps.getMillis();
     dateMillis = millis();
     validCode = waitDollar;
 #else // GPS_USES_RMC
-  if (tmp.equals(GPS_CODE_ZDA) || tmp.equals(GPS_CODE2_ZDA)) {
+  if (tmp_is_code(GPS_CODE_ZDA)) {
     validCode = inTimeCode;
 #endif
-  } else if (tmp.length() == 5 && tmp[2] == 'G' && tmp[3] == 'S' && tmp[4] == 'A') {
+  } else if (tmp_is_code(GPS_CODE_GSA)) {
     validCode = inGSA;
-  } else if (tmp.length() == 5 && tmp[2] == 'G' && tmp[3] == 'S' && tmp[4] == 'V') {
+  } else if (tmp_is_code(GPS_CODE_GSV)) {
     sawGSV = true;
     validCode = inGSV;
   } else {
