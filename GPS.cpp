@@ -20,8 +20,8 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
-  // RMC takes the PPS snapshot on the GPS_CODE_GGA message
-#ifndef GPS_USES_RMC
+  // RMC takes the PPS snapshot on the GPS_CODE_GGA message if it is first
+#if !defined(GPS_USES_RMC) || !defined(GPS_GGA_IS_FIRST)
   ppsCounter_ = pps.getCount();
   ppsMillis_ = pps.getMillis();
   dateMillis = millis();
@@ -98,9 +98,11 @@ void GPSDateTime::decodeType() {
   if (tmp_is_code(GPS_CODE_RMC)) {
     validCode = inTimeCode;
   } else if (tmp_is_code(GPS_CODE_GGA)) {
+#ifdef GPS_GGA_IS_FIRST
     ppsCounter_ = pps.getCount();
     ppsMillis_ = pps.getMillis();
     dateMillis = millis();
+#endif
     validCode = waitDollar;
 #else // GPS_USES_RMC
   if (tmp_is_code(GPS_CODE_ZDA)) {
