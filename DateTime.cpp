@@ -53,7 +53,7 @@ void DateTime::time(uint32_t t) {
   uint16_t days = t / 24;
   uint16_t leap;
   for (year_ = 0; ; ++year_) {
-    leap = year_ % 4 == 0;
+    leap = (year_ % 4 == 0 && year_ % 100 != 0) || year_ % 400 == 0;
     if (days < 365 + leap) {
       break;
     }

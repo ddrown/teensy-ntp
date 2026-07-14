@@ -60,7 +60,7 @@ Notes from a code review, roughly ordered by priority.
       ZDA-only, RMC+GGA, or both without recompiling.
 - [ ] Double check checksum parsing (`strtoul(tmp.c_str(), NULL, 16)`, GPS.cpp:252) for the
       0x0..0xF class of bug — likely inconsistent handling of "0" vs "00" style hex strings.
-- [ ] `DateTime::time()` (DateTime.cpp:44-68) leap-year check only tests `year_ % 4 == 0`, while
+- [x] `DateTime::time()` (DateTime.cpp:44-68) leap-year check only tests `year_ % 4 == 0`, while
       `date2days()` (DateTime.cpp:12) correctly excludes century years (`% 100 != 0` unless
       `% 400 == 0`). These will diverge at year 2100. Low priority given device lifespan, but
       worth a comment either way.

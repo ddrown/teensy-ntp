@@ -37,10 +37,24 @@ void test_numberdate() {
   TEST_ASSERT_EQUAL(2085523200, feb2036.unixtime());
 }
 
+void test_century_not_leap() {
+  // 2100 is divisible by 4 and by 100 but not by 400, so it is NOT a leap
+  // year. date2days() (encode) and DateTime::time() (decode) must agree,
+  // or dates from Mar 2100 onward decode one day short (into a
+  // nonexistent Feb 29).
+  DateTime mar2100 = DateTime(2100, 3, 1, 0, 0, 0);
+  DateTime roundtrip = DateTime(mar2100.ntptime());
+
+  TEST_ASSERT_EQUAL(3, roundtrip.month());
+  TEST_ASSERT_EQUAL(1, roundtrip.day());
+  TEST_ASSERT_EQUAL(2100, roundtrip.year());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ntpdate);
   RUN_TEST(test_stringdate);
   RUN_TEST(test_numberdate);
+  RUN_TEST(test_century_not_leap);
   return UNITY_END();
 }
