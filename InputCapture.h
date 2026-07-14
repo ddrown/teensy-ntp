@@ -10,9 +10,9 @@ class InputCapture {
     uint32_t getCaptures() { return captures; };
 
   private:
-    uint32_t lastCount;
-    uint32_t lastMillis;
-    uint32_t captures;
+    volatile uint32_t lastCount;
+    volatile uint32_t lastMillis;
+    volatile uint32_t captures;
 };
 
 extern InputCapture pps;

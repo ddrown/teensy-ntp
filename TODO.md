@@ -73,7 +73,7 @@ Notes from a code review, roughly ordered by priority.
       `tmp`/`msg`) with a fixed-size char buffer. NMEA sentences have a bounded max length
       (82 chars per spec) so this doesn't need dynamic allocation, and avoids heap
       fragmentation risk on a device meant to run indefinitely.
-- [ ] Mark `InputCapture`'s ISR-written fields (`lastCount`, `lastMillis`, `captures` in
+- [x] Mark `InputCapture`'s ISR-written fields (`lastCount`, `lastMillis`, `captures` in
       InputCapture.cpp:29) `volatile`, or add a comment noting reliance on single-word atomicity
       on this ARM core.
 

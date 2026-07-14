@@ -30,12 +30,20 @@ test-DateTime: test-DateTime.o DateTime.o $(LIBS)
 test-GPS: test-GPS.o DateTime.o GPS.o $(LIBS)
 test-NTPClock: test-NTPClock.o NTPClock.o $(LIBS)
 test-ClockPID: test-ClockPID.o ClockPID.o $(LIBS)
+test-InputCapture: test-InputCapture.o InputCapture.o $(LIBS)
 
 $(BINS):
 	g++ $(CXX_FLAGS) -o $@ $^
 
 test%.o: test%.cpp
 	g++ -c $(INCLUDES) $(CXX_FLAGS) $<
+
+# InputCapture.cpp normally relies on real Teensyduino core headers for
+# ENET/IOMUX registers, which ArduinoFake doesn't provide; force-include a
+# test-only stub for them (see teensy_registers_stub.h) rather than teaching
+# the real firmware code about the test environment.
+InputCapture.o: ../InputCapture.cpp
+	g++ -c $(INCLUDES) $(CXX_FLAGS) -include teensy_registers_stub.h $<
 
 %.o: ../%.cpp
 	g++ -c $(INCLUDES) $(CXX_FLAGS) $<

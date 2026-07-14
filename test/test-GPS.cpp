@@ -9,7 +9,7 @@
 InputCapture pps;
 
 void InputCapture::newCapture(uint32_t count) {
-  captures++;
+  captures = captures + 1;
   lastCount = count;
   lastMillis = 1000;
 }

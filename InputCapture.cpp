@@ -23,11 +23,13 @@ static void interrupt_1588_timer() {
     ENET_TCSR0 = ENET_TCSR0;
     pps.newCapture(ENET_TCCR0);
   }
+#ifdef __arm__
   asm("dsb"); // allow write to complete so the interrupt doesn't fire twice
+#endif
 }
 
 void InputCapture::newCapture(uint32_t count) {
-  captures++;
+  captures = captures + 1;
   lastCount = count;
   lastMillis = millis();
 }
