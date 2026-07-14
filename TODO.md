@@ -50,7 +50,7 @@ Notes from a code review, roughly ordered by priority.
 
 ## Bugs / fragile areas
 
-- [ ] Rewrite `GPSDateTime::decodeType()` (GPS.cpp:96) — the `#ifdef GPS_USES_RMC` branch
+- [x] Rewrite `GPSDateTime::decodeType()` (GPS.cpp:96) — the `#ifdef GPS_USES_RMC` branch
       interleaves an `if/else if` chain across preprocessor boundaries (RMC/GGA branch vs. ZDA
       branch are stitched together by the preprocessor). This shape produced issue #6 ("code
       assumes RMC comes after GGA") and contributed to #5 ("checksums in the range 0x0..0xF
@@ -58,6 +58,33 @@ Notes from a code review, roughly ordered by priority.
       `{sentence_code, field_count, handler_fn}` selected at *runtime* based on which sentences
       are actually seen, rather than selected at compile time. Would also allow supporting
       ZDA-only, RMC+GGA, or both without recompiling.
+      Went with the runtime-detection option rather than just de-interleaving the `#ifdef`s:
+      `GPS_USES_RMC`/`GPS_GGA_IS_FIRST` are gone entirely. `validCode`'s `inTimeCode` state is
+      now split into `inZDATimeCode`/`inRMCTimeCode`, and `decodeTimeCode()` dispatches on that
+      instead of a compile-time macro, so ZDA and RMC+GGA are both handled by the same binary.
+      The PPS/millis reference is captured by `decodeType()` on whichever of ZDA/RMC/GGA is
+      first to arrive *after a given PPS pulse* — identified via the previously-unused
+      `InputCapture::getCaptures()` (an ISR-incremented pulse count), not by assuming a fixed
+      sentence order. First attempt used a "reset after the time-bearing sentence completes"
+      flag instead of the pulse-count signal; that regressed silently for RMC-before-GGA
+      ordering (GGA would re-trigger and overwrite RMC's capture) since sentence order within a
+      cycle isn't fixed. Caught by `test_rmc_then_gga_captures_at_rmc` before it shipped.
+      Added `test/test-GPS.cpp` coverage that was previously impossible without a separate
+      compile: `test_rmc_alone`, `test_gga_then_rmc_captures_at_gga`,
+      `test_rmc_then_gga_captures_at_rmc`, `test_capture_resets_on_next_pulse` — all run in the
+      default `test-GPS` binary now instead of only being checked with a standalone `g++ -c` of
+      the untested `GPS_USES_RMC`/`GPS_GGA_IS_FIRST` build configs. Verified the regression tests
+      are meaningful by reverting the pulse-count guard locally: 3 of the 4 new tests failed as
+      expected, confirming they'd have caught the original issue #6 bug class.
+      Runtime detection also opened a new failure mode the old compile-time macros structurally
+      prevented: a module emitting *both* ZDA and RMC in the same cycle (some do) would have
+      both independently reach `decodeType()`'s time-bearing branches and both call `commit()`,
+      making `decode()` report the same PPS pulse as two separate updates (double-feeding one
+      fix into `updateTime()`'s median-of-3 and `ClockPID`'s sample accumulation). Caught by
+      review, not by a test, before it shipped. Fixed with a `committedThisPulse_` guard
+      (re-armed on the same "new pulse" signal as the capture logic) so only the first
+      time-bearing sentence to complete commits; added `test_zda_then_rmc_only_first_commits`
+      and `test_rmc_then_zda_only_first_commits`, both confirmed to fail without the guard.
 - [x] Double check checksum parsing (`strtoul(tmp.c_str(), NULL, 16)`, GPS.cpp:252) for the
       0x0..0xF class of bug — likely inconsistent handling of "0" vs "00" style hex strings.
       Confirmed already fixed (commit af31793) and confirmed `test/test-GPS.cpp`'s

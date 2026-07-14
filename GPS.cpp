@@ -22,12 +22,8 @@ void GPSDateTime::commit() {
   year_ = newYear_;
   month_ = newMonth_;
   day_ = newDay_;
-  // RMC takes the PPS snapshot on the GPS_CODE_GGA message if it is first
-#if !defined(GPS_USES_RMC) || !defined(GPS_GGA_IS_FIRST)
-  ppsCounter_ = pps.getCount();
-  ppsMillis_ = pps.getMillis();
-  dateMillis = millis();
-#endif
+  // PPS/millis reference was already snapshotted by decodeType() on
+  // whichever of ZDA/RMC/GGA arrived first this cycle -- see there.
   if(sawGSV) { // sometimes GSV doesn't come every second
     strongSignal = strongSignalNext;
     weakSignal = weakSignalNext;
@@ -105,62 +101,93 @@ void GPSDateTime::tmp_append(char c) {
 }
 
 void GPSDateTime::decodeType() {
-#ifdef GPS_USES_RMC
-  if (tmp_is_code(GPS_CODE_RMC)) {
-    validCode = inTimeCode;
-  } else if (tmp_is_code(GPS_CODE_GGA)) {
-#ifdef GPS_GGA_IS_FIRST
+  if (tmp_is_code(GPS_CODE_GSA)) {
+    validCode = inGSA;
+    return;
+  }
+  if (tmp_is_code(GPS_CODE_GSV)) {
+    sawGSV = true;
+    validCode = inGSV;
+    return;
+  }
+
+  bool isZDA = tmp_is_code(GPS_CODE_ZDA);
+  bool isRMC = tmp_is_code(GPS_CODE_RMC);
+  bool isGGA = tmp_is_code(GPS_CODE_GGA);
+
+  // Snapshot the PPS/local-time reference on whichever of ZDA/RMC/GGA is
+  // first to arrive after a given PPS pulse, rather than assuming a fixed
+  // sentence order/set at compile time (this replaces the old
+  // GPS_USES_RMC/GPS_GGA_IS_FIRST macros -- see issue #6, "code assumes
+  // RMC comes after GGA"). Whichever arrives first is also the closest
+  // available reference point to the PPS edge, so this is never worse than
+  // a fixed assumption and self-corrects if a module's sentence order
+  // differs from what was expected.
+  //
+  // "First after a pulse" is identified via InputCapture::getCaptures()
+  // (an ISR-incremented count of real PPS pulses seen) rather than by
+  // guessing from NMEA content/order: NMEA sentences don't carry an
+  // explicit "this is a new second" marker, and GGA isn't guaranteed to be
+  // either first or last in the burst, so re-arming the capture only when
+  // getCaptures() has actually advanced is the one signal that's correct
+  // regardless of sentence order or count.
+  if ((isZDA || isRMC || isGGA) &&
+      (!everCapturedPps_ || pps.getCaptures() != capturedPpsCaptures_)) {
     ppsCounter_ = pps.getCount();
     ppsMillis_ = pps.getMillis();
     dateMillis = millis();
-#endif
-    validCode = waitDollar;
-#else // GPS_USES_RMC
-  if (tmp_is_code(GPS_CODE_ZDA)) {
-    validCode = inTimeCode;
-#endif
-  } else if (tmp_is_code(GPS_CODE_GSA)) {
-    validCode = inGSA;
-  } else if (tmp_is_code(GPS_CODE_GSV)) {
-    sawGSV = true;
-    validCode = inGSV;
+    capturedPpsCaptures_ = pps.getCaptures();
+    everCapturedPps_ = true;
+    // A new pulse means a fresh cycle: allow exactly one commit() for it,
+    // even if the module emits both ZDA and RMC (some do) -- otherwise
+    // decode() would report the same PPS pulse as two separate updates.
+    committedThisPulse_ = false;
+  }
+
+  if (isZDA) {
+    validCode = inZDATimeCode;
+  } else if (isRMC) {
+    validCode = inRMCTimeCode;
   } else {
+    // GGA carries no date and is only used above as an early capture
+    // trigger -- its own fields are unused -- and any other sentence type
+    // is ignored outright.
     validCode = waitDollar;
   }
 }
 
 void GPSDateTime::decodeTimeCode() {
-#ifdef GPS_USES_RMC
-  // example $GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20
-  switch (count_) {
-    case 1: // time
-      this->rmctime(tmp);
-      break;
-    case 9:
-      this->rmcdate(tmp);
-      break;
-    default:
-      break;
+  if (validCode == inRMCTimeCode) {
+    // example $GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20
+    switch (count_) {
+      case 1: // time
+        this->rmctime(tmp);
+        break;
+      case 9:
+        this->rmcdate(tmp);
+        break;
+      default:
+        break;
+    }
+  } else { // inZDATimeCode
+    // example $GPZDA,174304.36,24,11,2015,00,00*66
+    switch (count_) {
+      case 1: // time
+        this->time(tmp);
+        break;
+      case 2: // day
+        this->day(tmp);
+        break;
+      case 3: // month
+        this->month(tmp);
+        break;
+      case 4: // year
+        this->year(tmp);
+        break;
+      default:
+        break;
+    }
   }
-#else
-  // example $GPZDA,174304.36,24,11,2015,00,00*66
-  switch (count_) {
-    case 1: // time
-      this->time(tmp);
-      break;
-    case 2: // day
-      this->day(tmp);
-      break;
-    case 3: // month
-      this->month(tmp);
-      break;
-    case 4: // year
-      this->year(tmp);
-      break;
-    default:
-      break;
-  }
-#endif
 }
 
 void GPSDateTime::decodeGSA() {
@@ -236,7 +263,8 @@ bool GPSDateTime::decode() {
       case getType:
         decodeType();
         break;
-      case inTimeCode:
+      case inZDATimeCode:
+      case inRMCTimeCode:
         decodeTimeCode();
         break;
       case inGSA:
@@ -263,9 +291,10 @@ bool GPSDateTime::decode() {
     validString = parity_ == checksum;
 
     if (validString) {
-      if(validCode == inTimeCode) {
+      if((validCode == inZDATimeCode || validCode == inRMCTimeCode) && !committedThisPulse_) {
         this->commit();
         isUpdated_ = true;
+        committedThisPulse_ = true;
       }
       // commit datetime
     }

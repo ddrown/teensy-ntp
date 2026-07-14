@@ -50,12 +50,164 @@ void test_checksum() {
   assert_checksum_accepted("$GNZDA,031700.000,17,12,p018,00,00*01\r\n"); // checksum 0x01
 }
 
+// helper: simulate a real PPS pulse arriving (the InputCapture ISR firing),
+// establishing a new (count, millis=1000) reference for this fix cycle.
+// Must be called once per cycle, not once per sentence -- multiple NMEA
+// sentences share a single pulse on real hardware.
+static void firePulse(uint32_t ppsCount) {
+  pps.newCapture(ppsCount);
+}
+
+// helper: feed every byte of a mocked serial message through decode(), with
+// millis() mocked to mockMillis for the duration -- as if this sentence
+// arrived while that was the current local time.
+static bool feed(GPSDateTime &gps, const char *mockMessage, uint32_t mockMillis) {
+  When(Method(ArduinoFake(), millis)).Return(mockMillis);
+  bool updated = false;
+  for(uint32_t i = 0; i < strlen(mockMessage); i++) {
+    When(Method(ArduinoFake(Serial), read)).Return(mockMessage[i]);
+    if(gps.decode()) {
+      updated = true;
+    }
+  }
+  return updated;
+}
+
+// RMC alone (no GGA) is sufficient to capture a PPS reference and decode a
+// full date/time -- GPS_USES_RMC used to have to be defined at compile
+// time for this to parse at all; sentence-type handling is now runtime, so
+// any module emitting RMC works without a special build.
+void test_rmc_alone() {
+  GPSDateTime gps(&Serial);
+  firePulse(4242);
+  bool updated = feed(gps, "$GPRMC,131102.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,220307,0.0,E,A*25\r\n", 8000);
+
+  TEST_ASSERT_TRUE(updated);
+  TEST_ASSERT_EQUAL(8000, gps.capturedAt());
+  TEST_ASSERT_EQUAL(4242, gps.ppsCounter());
+
+  DateTime decoded = gps.GPSnow();
+  TEST_ASSERT_EQUAL(2007, decoded.year());
+  TEST_ASSERT_EQUAL(3, decoded.month());
+  TEST_ASSERT_EQUAL(22, decoded.day());
+  TEST_ASSERT_EQUAL(13, decoded.hour());
+  TEST_ASSERT_EQUAL(11, decoded.minute());
+  TEST_ASSERT_EQUAL(2, decoded.second());
+}
+
+// GGA arriving before RMC in a fix cycle should be the one that captures
+// the PPS reference (it's the earlier message, closer to the pulse edge),
+// even though RMC is what actually supplies the date/time. Regression
+// coverage for issue #6 ("code assumes RMC comes after GGA"), now that
+// sentence order is auto-detected at runtime instead of picked via
+// GPS_USES_RMC/GPS_GGA_IS_FIRST at compile time -- and, unlike the old
+// compile-time flags, this path is exercised by the default test build
+// instead of only being checked with a standalone `g++ -c`.
+void test_gga_then_rmc_captures_at_gga() {
+  GPSDateTime gps(&Serial);
+
+  // one pulse, three sentences -- GSA, then GGA, then RMC, as a real
+  // receiver's burst would look. The unrelated GSA ahead of GGA must not
+  // itself trigger, or block, the capture.
+  firePulse(1111);
+  feed(gps, "$GPGSA,A,3,04,07,09,03,08,22,16,27,,,,,1.4,0.8,1.2*3F\r\n", 4000);
+  feed(gps, "$GPGGA,144326.00,5107.0017737,N,11402.3291611,W,1,08,0.9,545.4,M,46.9,M,,*7D\r\n", 5000);
+  bool updated = feed(gps, "$GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20\r\n", 9000);
+
+  TEST_ASSERT_TRUE(updated);
+  TEST_ASSERT_EQUAL(5000, gps.capturedAt());  // GGA's arrival time, not RMC's
+  TEST_ASSERT_EQUAL(1111, gps.ppsCounter());  // this cycle's pulse, captured once
+
+  DateTime decoded = gps.GPSnow();
+  TEST_ASSERT_EQUAL(2007, decoded.year());
+  TEST_ASSERT_EQUAL(3, decoded.month());
+  TEST_ASSERT_EQUAL(21, decoded.day());
+}
+
+// The reverse order: RMC arrives first, so RMC captures the PPS reference
+// and GGA arriving afterward (same pulse) must not overwrite it.
+void test_rmc_then_gga_captures_at_rmc() {
+  GPSDateTime gps(&Serial);
+
+  firePulse(2222);
+  bool updated = feed(gps, "$GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20\r\n", 9000);
+  feed(gps, "$GPGGA,144326.00,5107.0017737,N,11402.3291611,W,1,08,0.9,545.4,M,46.9,M,,*7D\r\n", 5000);
+
+  TEST_ASSERT_TRUE(updated);
+  TEST_ASSERT_EQUAL(9000, gps.capturedAt());  // RMC's arrival time, not GGA's
+  TEST_ASSERT_EQUAL(2222, gps.ppsCounter());
+}
+
+// The capture must re-arm on the next PPS pulse -- otherwise every cycle
+// after the first GGA+RMC pair would keep reusing that first cycle's stale
+// capture instead of taking a fresh one on the next pulse.
+void test_capture_resets_on_next_pulse() {
+  GPSDateTime gps(&Serial);
+
+  firePulse(1111);
+  feed(gps, "$GPGGA,144326.00,5107.0017737,N,11402.3291611,W,1,08,0.9,545.4,M,46.9,M,,*7D\r\n", 5000);
+  feed(gps, "$GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20\r\n", 9000);
+  TEST_ASSERT_EQUAL(5000, gps.capturedAt());
+
+  // next pulse -- second cycle, RMC only, distinct values -- must not
+  // still be showing the first cycle's GGA capture.
+  firePulse(4242);
+  feed(gps, "$GPRMC,131102.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,220307,0.0,E,A*25\r\n", 12000);
+  TEST_ASSERT_EQUAL(12000, gps.capturedAt());
+  TEST_ASSERT_EQUAL(4242, gps.ppsCounter());
+}
+
+// A module could plausibly emit both ZDA and RMC in the same fix cycle
+// (unlike GGA, both are independently sufficient to supply a full
+// date/time). Only the first to complete should commit -- the second must
+// not re-commit, and decode() must not report a second update, for what's
+// really the same PPS pulse. Without this guard the caller would double-
+// feed one pulse into the PID sample pipeline as if it were two.
+void test_zda_then_rmc_only_first_commits() {
+  GPSDateTime gps(&Serial);
+
+  firePulse(7777);
+  bool zdaUpdated = feed(gps, "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n", 5000);
+  bool rmcUpdated = feed(gps, "$GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20\r\n", 9000);
+
+  TEST_ASSERT_TRUE(zdaUpdated);
+  TEST_ASSERT_FALSE(rmcUpdated);
+  TEST_ASSERT_EQUAL(5000, gps.capturedAt());  // ZDA's arrival time, not RMC's
+
+  DateTime decoded = gps.GPSnow();
+  TEST_ASSERT_EQUAL(2019, decoded.year());
+  TEST_ASSERT_EQUAL(12, decoded.month());
+  TEST_ASSERT_EQUAL(17, decoded.day());
+}
+
+// Same as above with the order reversed: RMC first commits, ZDA arriving
+// afterward in the same cycle must not override it.
+void test_rmc_then_zda_only_first_commits() {
+  GPSDateTime gps(&Serial);
+
+  firePulse(8888);
+  bool rmcUpdated = feed(gps, "$GPRMC,144326.00,A,5107.0017737,N,11402.3291611,W,0.080,323.3,210307,0.0,E,A*20\r\n", 9000);
+  bool zdaUpdated = feed(gps, "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n", 5000);
+
+  TEST_ASSERT_TRUE(rmcUpdated);
+  TEST_ASSERT_FALSE(zdaUpdated);
+  TEST_ASSERT_EQUAL(9000, gps.capturedAt());  // RMC's arrival time, not ZDA's
+
+  DateTime decoded = gps.GPSnow();
+  TEST_ASSERT_EQUAL(2007, decoded.year());
+  TEST_ASSERT_EQUAL(3, decoded.month());
+  TEST_ASSERT_EQUAL(21, decoded.day());
+}
+
 void test_decode() {
   const char mockMessage[]  = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
   const char mockMessage2[] = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
   const char mockMessage3[] = "$GNZDA,031700.000,17,12,2019,00,00*42\n";
   GPSDateTime gps(&Serial);
 
+  // each mockMessage below stands in for a distinct second's fix, which on
+  // real hardware always has its own PPS pulse ahead of it.
+  pps.newCapture(1);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
 
   for(uint32_t i = 0; i < strlen(mockMessage); i++) {
@@ -69,6 +221,7 @@ void test_decode() {
   DateTime decoded = gps.GPSnow();
   TEST_ASSERT_EQUAL(1576552619, decoded.unixtime());
 
+  pps.newCapture(2);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
 
   for(uint32_t i = 0; i < strlen(mockMessage2); i++) {
@@ -82,6 +235,7 @@ void test_decode() {
   decoded = gps.GPSnow();
   TEST_ASSERT_EQUAL(1576552620, decoded.unixtime());
 
+  pps.newCapture(3);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
 
   for(uint32_t i = 0; i < strlen(mockMessage3); i++) {
@@ -195,6 +349,9 @@ $GPZDA,031700.000,17,12,2019,00,00*5C
   TEST_ASSERT_EQUAL(0.8, gps.getHdop());
   TEST_ASSERT_EQUAL(1.2, gps.getVdop());
 
+  // a distinct second's fix -- its own PPS pulse ahead of it, same as in
+  // test_decode.
+  pps.newCapture(101);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
 
   timesTrue = 0;
@@ -226,5 +383,11 @@ int main() {
   RUN_TEST(test_decode);
   RUN_TEST(test_satellites);
   RUN_TEST(test_checksum);
+  RUN_TEST(test_rmc_alone);
+  RUN_TEST(test_gga_then_rmc_captures_at_gga);
+  RUN_TEST(test_rmc_then_gga_captures_at_rmc);
+  RUN_TEST(test_capture_resets_on_next_pulse);
+  RUN_TEST(test_zda_then_rmc_only_first_commits);
+  RUN_TEST(test_rmc_then_zda_only_first_commits);
   return UNITY_END();
 }

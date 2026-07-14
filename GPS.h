@@ -19,6 +19,9 @@ class GPSDateTime {
     tmp[0] = '\0';
     tmpLen = 0;
     lockStatus_ = dateMillis = 0;
+    everCapturedPps_ = false;
+    committedThisPulse_ = false;
+    capturedPpsCaptures_ = 0;
     strongSignal = weakSignal = strongSignalNext = weakSignalNext = noSignal = noSignalNext = 0;
     satellites[0][0].id = satellites[0][0].azimuth = satellites[0][0].elevation = satellites[0][0].snr = 0;
     satellites_i = 0;
@@ -78,11 +81,14 @@ class GPSDateTime {
   uint8_t parity_;
 
   bool isNotChecked;
-  enum {waitDollar, getType, inTimeCode, inGSA, inGSV} validCode;
+  enum {waitDollar, getType, inZDATimeCode, inRMCTimeCode, inGSA, inGSV} validCode;
   bool validString;
   bool isUpdated_;
   bool getFlag_;
   bool sawGSV;
+  bool everCapturedPps_;
+  bool committedThisPulse_;
+  uint32_t capturedPpsCaptures_;
   uint32_t dateMillis, ppsCounter_, ppsMillis_;
   uint32_t strongSignal, weakSignal, noSignal, strongSignalNext, weakSignalNext, noSignalNext;
   uint8_t lockStatus_;
