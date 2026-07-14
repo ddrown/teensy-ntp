@@ -1,6 +1,10 @@
 #pragma once
 
 #define MAX_SATELLITES 30
+// generous bound on a single NMEA field's length (a full sentence is
+// bounded to 82 chars per spec; individual fields are much shorter, e.g.
+// the longest lat/lon fields are ~13 chars)
+#define GPS_FIELD_MAX_LEN 32
 
 struct satellite {
   uint16_t id;
@@ -11,7 +15,9 @@ struct satellite {
 
 class GPSDateTime {
  public:
-  GPSDateTime(Stream *gpsUart): tmp(""), gpsUart_(gpsUart), validCode(waitDollar) {
+  GPSDateTime(Stream *gpsUart): gpsUart_(gpsUart), validCode(waitDollar) {
+    tmp[0] = '\0';
+    tmpLen = 0;
     lockStatus_ = dateMillis = 0;
     strongSignal = weakSignal = strongSignalNext = weakSignalNext = noSignal = noSignalNext = 0;
     satellites[0][0].id = satellites[0][0].azimuth = satellites[0][0].elevation = satellites[0][0].snr = 0;
@@ -21,17 +27,17 @@ class GPSDateTime {
     sawGSV = false;
   };
   void commit(void);
-  void time(String time);
-  void rmctime(String timestr);
-  void rmcdate(String datestr);
+  void time(const char *time);
+  void rmctime(const char *timestr);
+  void rmcdate(const char *datestr);
   uint16_t hour();
   uint16_t minute();
   uint16_t second();
-  void day(String day);
+  void day(const char *day);
   uint16_t day(void);
-  void month(String month);
+  void month(const char *month);
   uint16_t month(void);
-  void year(String year);
+  void year(const char *year);
   uint16_t year(void);
   DateTime GPSnow();
   bool decode();
@@ -62,8 +68,10 @@ class GPSDateTime {
   void decodeGSA();
   void decodeGSV();
   bool tmp_is_code(const char *code);
+  void tmp_append(char c);
 
-  String tmp;
+  char tmp[GPS_FIELD_MAX_LEN];
+  uint8_t tmpLen;
   Stream *gpsUart_;
 
   uint8_t count_;
@@ -84,7 +92,6 @@ class GPSDateTime {
   float pdop, hdop, vdop;
 
   bool debug_;
-  String msg;
   DateTime now(void);
 };
 

@@ -1,6 +1,8 @@
 // from https://raw.githubusercontent.com/DennisSc/PPS-ntp-server/master/src/GPS.cpp
 
 #include <Arduino.h>
+#include <stdlib.h>
+#include <string.h>
 #include "DateTime.h"
 #include "GPS.h"
 #include "InputCapture.h"
@@ -38,8 +40,8 @@ void GPSDateTime::commit() {
   strongSignalNext = weakSignalNext = noSignalNext = 0;
 }
 
-void GPSDateTime::time(String time) {
-  newTime_ = time.toFloat() * 100;
+void GPSDateTime::time(const char *time) {
+  newTime_ = atof(time) * 100;
 }
 
 uint16_t GPSDateTime::hour() {
@@ -54,34 +56,34 @@ uint16_t GPSDateTime::second() {
   return (time_ / 100) % 100;
 }
 
-void GPSDateTime::day(String day) {
-  newDay_ = day.toInt();
+void GPSDateTime::day(const char *day) {
+  newDay_ = atoi(day);
 }
 uint16_t GPSDateTime::day(void) { return day_; };
 
-void GPSDateTime::month(String month) {
-  newMonth_ = month.toInt();
+void GPSDateTime::month(const char *month) {
+  newMonth_ = atoi(month);
 }
 uint16_t GPSDateTime::month(void) { return month_; };
 
-void GPSDateTime::year(String year) {
-  newYear_ = year.toInt();
+void GPSDateTime::year(const char *year) {
+  newYear_ = atoi(year);
 }
 uint16_t GPSDateTime::year(void) { return year_; };
 
-void GPSDateTime::rmctime(String timestr) {
-  newTime_ = timestr.toFloat() * 100;
+void GPSDateTime::rmctime(const char *timestr) {
+  newTime_ = atof(timestr) * 100;
 }
 
-void GPSDateTime::rmcdate(String datestr) {
-  int date = datestr.toInt();
+void GPSDateTime::rmcdate(const char *datestr) {
+  int date = atoi(datestr);
   newDay_ = date / 10000;
   newMonth_ = (date / 100) % 100;
   newYear_ = date % 100 + 2000;
 }
 
 bool GPSDateTime::tmp_is_code(const char *code) {
-  if(tmp.length() != 5) {
+  if(tmpLen != 5) {
     return false;
   }
   if(tmp[0] != 'G') {
@@ -90,7 +92,16 @@ bool GPSDateTime::tmp_is_code(const char *code) {
   if(tmp[1] != 'P' && tmp[1] != 'N' && tmp[1] != 'L') {
     return false;
   }
-  return tmp.endsWith(code);
+  return strcmp(tmp + 2, code) == 0;
+}
+
+// bounds-checked append; silently truncates instead of overflowing --
+// real NMEA fields never come close to GPS_FIELD_MAX_LEN
+void GPSDateTime::tmp_append(char c) {
+  if (tmpLen < sizeof(tmp) - 1) {
+    tmp[tmpLen++] = c;
+    tmp[tmpLen] = '\0';
+  }
 }
 
 void GPSDateTime::decodeType() {
@@ -156,16 +167,16 @@ void GPSDateTime::decodeGSA() {
   // example $GPGSA,A,3,04,07,09,03,08,22,16,27,,,,,1.4,0.8,1.2*3F
   switch(count_) {
     case 2:
-      lockStatus_ = tmp.toInt();
+      lockStatus_ = atoi(tmp);
       break;
     case 15:
-      pdop = tmp.toFloat();
+      pdop = atof(tmp);
       break;
     case 16:
-      hdop = tmp.toFloat();
+      hdop = atof(tmp);
       break;
     case 17:
-      vdop = tmp.toFloat();
+      vdop = atof(tmp);
       break;
   }
 }
@@ -175,16 +186,16 @@ void GPSDateTime::decodeGSV() {
   if(count_ > 3 && count_ < 20) {
     switch(count_ % 4) {
       case 0: // id
-        satellites[writeCopy][satellites_i].id = tmp.toInt();
+        satellites[writeCopy][satellites_i].id = atoi(tmp);
         break;
       case 1: // elevation from horizon in degrees
-        satellites[writeCopy][satellites_i].elevation = tmp.toInt();
+        satellites[writeCopy][satellites_i].elevation = atoi(tmp);
         break;
       case 2: // azimuth from clockwise north in degrees
-        satellites[writeCopy][satellites_i].azimuth = tmp.toInt();
+        satellites[writeCopy][satellites_i].azimuth = atoi(tmp);
         break;
       case 3: // snr
-        satellites[writeCopy][satellites_i].snr = tmp.toInt();
+        satellites[writeCopy][satellites_i].snr = atoi(tmp);
         if(satellites[writeCopy][satellites_i].snr >= 25) {
           strongSignalNext++;
         } else if(satellites[writeCopy][satellites_i].snr >= 10) {
@@ -207,9 +218,8 @@ bool GPSDateTime::decode() {
   char c = gpsUart_->read();
 
   if (c == '$') {
-   
-    tmp = "\0";
-    msg = "$";
+    tmp[0] = '\0';
+    tmpLen = 0;
     count_ = 0;
     parity_ = 0;
     validCode = getType;
@@ -221,7 +231,6 @@ bool GPSDateTime::decode() {
   if (validCode == waitDollar) {
     return false;
   }
-  msg += c;
   if (c == ',' || c == '*') {
     switch(validCode) {
       case getType:
@@ -245,11 +254,12 @@ bool GPSDateTime::decode() {
     if (c == '*') {
       isNotChecked = false;
     }
-    tmp = "\0";
+    tmp[0] = '\0';
+    tmpLen = 0;
     count_++;
   } else if (c == '\r' || c == '\n') {
     // carriage return, so check for valid parity
-    uint8_t checksum = strtoul( tmp.c_str(), NULL, 16 );
+    uint8_t checksum = strtoul( tmp, NULL, 16 );
     validString = parity_ == checksum;
 
     if (validString) {
@@ -261,15 +271,15 @@ bool GPSDateTime::decode() {
     }
 
     // end of string
-    msg = "\0";
-    tmp = "\0";
+    tmp[0] = '\0';
+    tmpLen = 0;
     count_ = 0;
     parity_ = 0;
     validCode = waitDollar;
     return isUpdated_;
   } else {
     // ordinary char
-    tmp += c;
+    tmp_append(c);
     if (isNotChecked) {
       // XOR of all characters from $ to *
       parity_ ^= (uint8_t) c;

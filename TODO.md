@@ -74,10 +74,16 @@ Notes from a code review, roughly ordered by priority.
 
 - [x] `DateTime::DateTime(uint32_t)` (DateTime.cpp:40) and `DateTime::time(uint32_t)`
       (DateTime.cpp:71) are byte-for-byte duplicated — have the constructor call `time()`.
-- [ ] Replace `String`-based accumulation in `GPSDateTime::decode()` (GPS.cpp:207-280,
+- [x] Replace `String`-based accumulation in `GPSDateTime::decode()` (GPS.cpp:207-280,
       `tmp`/`msg`) with a fixed-size char buffer. NMEA sentences have a bounded max length
       (82 chars per spec) so this doesn't need dynamic allocation, and avoids heap
       fragmentation risk on a device meant to run indefinitely.
+      `tmp` is now a bounds-checked `char[GPS_FIELD_MAX_LEN]` (32 bytes, sized for a single
+      NMEA field rather than a whole sentence). `msg` turned out to be dead code -- written to
+      but never read anywhere -- so it was deleted rather than given a buffer. The `String`-
+      taking setters (`time`/`day`/`month`/`year`/`rmctime`/`rmcdate`) now take `const char *`
+      and use `atoi`/`atof` instead of `String::toInt`/`toFloat`. Verified both `GPS_USES_RMC`
+      and `GPS_USES_RMC`+`GPS_GGA_IS_FIRST` compile cleanly in addition to the default path.
 - [x] Mark `InputCapture`'s ISR-written fields (`lastCount`, `lastMillis`, `captures` in
       InputCapture.cpp:29) `volatile`, or add a comment noting reliance on single-word atomicity
       on this ARM core.
