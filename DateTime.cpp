@@ -38,34 +38,7 @@ static long time2long(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
 
 // expects NTP timestamp
 DateTime::DateTime(uint32_t t) {
-  // bring to 2000 timestamp from 1900
-  t -= SECONDS_FROM_1900_TO_2000;
-
-  second_ = t % 60;
-  t /= 60;
-  minute_ = t % 60;
-  t /= 60;
-  hour_ = t % 24;
-  uint16_t days = t / 24;
-  uint16_t leap;
-  for (year_ = 0; ; ++year_) {
-    leap = year_ % 4 == 0;
-    if (days < 365 + leap) {
-      break;
-    }
-    days -= 365 + leap;
-  }
-  for (month_ = 1; ; ++month_) {
-    uint16_t daysPerMonth = pgm_read_byte(daysInMonth + month_ - 1);
-    if (leap && month_ == 2) {
-      ++daysPerMonth;
-    }
-    if (days < daysPerMonth) {
-      break;
-    }
-    days -= daysPerMonth;
-  }
-  day_ = days + 1;
+  this->time(t);
 }
 
 void DateTime::time(uint32_t t) {

@@ -67,7 +67,7 @@ Notes from a code review, roughly ordered by priority.
 
 ## Cleanup
 
-- [ ] `DateTime::DateTime(uint32_t)` (DateTime.cpp:40) and `DateTime::time(uint32_t)`
+- [x] `DateTime::DateTime(uint32_t)` (DateTime.cpp:40) and `DateTime::time(uint32_t)`
       (DateTime.cpp:71) are byte-for-byte duplicated — have the constructor call `time()`.
 - [ ] Replace `String`-based accumulation in `GPSDateTime::decode()` (GPS.cpp:207-280,
       `tmp`/`msg`) with a fixed-size char buffer. NMEA sentences have a bounded max length
