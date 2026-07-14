@@ -23,8 +23,9 @@ InputCapture::InputCapture() {
 void InputCapture::begin() {
 }
 
-void test_checksum() {
-  const char mockMessage[]  = "$GNZDA,031700.000,17,12,p019,00,00*00\r\n";
+// asserts decode() accepts the message's checksum, i.e. it breaks out of
+// the byte-feeding loop right at the trailing \r instead of running past it
+static void assert_checksum_accepted(const char *mockMessage) {
   GPSDateTime gps(&Serial);
   uint32_t i;
 
@@ -36,8 +37,17 @@ void test_checksum() {
       break;
     }
   }
-  // should break at \r
   TEST_ASSERT_EQUAL(strlen(mockMessage)-2, i);
+}
+
+void test_checksum() {
+  // checksums in 0x0..0xF used to fail: parity_ was compared against the
+  // message's 2-char zero-padded hex field via a non-zero-padded
+  // String(parity_, HEX), so e.g. checksum 0x01 rendered as "1" and never
+  // matched the message's "01". Cover both a zero and a non-zero
+  // single-hex-digit checksum.
+  assert_checksum_accepted("$GNZDA,031700.000,17,12,p019,00,00*00\r\n"); // checksum 0x00
+  assert_checksum_accepted("$GNZDA,031700.000,17,12,p018,00,00*01\r\n"); // checksum 0x01
 }
 
 void test_decode() {
