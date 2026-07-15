@@ -163,7 +163,7 @@ function gotData(json) {
   $.each( json, function( key, value ) {
     if(key === "offsetHuman") {
       value = value.toFixed(9);
-    } else if(key === "ppsMillis" || key === "curMillis") {
+    } else if(key === "ppsMillis" || key === "curMillis" || key === "holdoverElapsedMs") {
       value = (value / 1000).toFixed(3);
     } else if(key === "dChiSq") {
       value = value.toFixed(3);
@@ -173,6 +173,10 @@ function gotData(json) {
       } else {
         value = `??? ${value}`;
       }
+    } else if(key === "inHoldover") {
+      value = value ? "yes" : "no";
+    } else if(key === "holdoverDispersion") {
+      value = (value / 65536).toFixed(3); // NTP short (16.16) fixed-point seconds
     }
     $("#"+key).text(value);
   });

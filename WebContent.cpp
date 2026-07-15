@@ -48,7 +48,7 @@ const char *WebContent::jsonState() {
   int offset = snprintf(
     jsonBuffer,
     sizeof(jsonBuffer),
-    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld,",
+    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld, \"inHoldover\": %d, \"holdoverDispersion\": %lu, \"holdoverElapsedMs\": %lu,",
     ppsToGPS,
     ppsMillis,
     millis(),
@@ -57,7 +57,10 @@ const char *WebContent::jsonState() {
     offsetHuman,
     pidD,
     dChiSq,
-    clockPpb
+    clockPpb,
+    inHoldover ? 1 : 0,
+    holdoverDispersion,
+    holdoverElapsedMs
   );
   if (offset >= total) {
     jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
@@ -108,4 +111,10 @@ void WebContent::setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, 
   dChiSq = isnan(new_dChiSq) ? 0 : new_dChiSq;
   clockPpb = new_clockPpb;
   gpstime = new_gpstime;
+}
+
+void WebContent::setHoldover(bool new_inHoldover, uint32_t new_holdoverDispersion, uint32_t new_holdoverElapsedMs) {
+  inHoldover = new_inHoldover;
+  holdoverDispersion = new_holdoverDispersion;
+  holdoverElapsedMs = new_holdoverElapsedMs;
 }

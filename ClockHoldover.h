@@ -36,6 +36,7 @@
 struct HoldoverStatus {
   bool inHoldover;
   uint32_t dispersion; // only meaningful when inHoldover is true
+  uint32_t elapsedMs;  // ms spent in the current holdover episode; only meaningful when inHoldover is true
 };
 
 // Watches for GPS/PPS going silent and, once it has, takes over disciplining

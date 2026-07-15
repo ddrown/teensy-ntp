@@ -89,6 +89,15 @@ Notes from a code review, roughly ordered by priority.
       accumulation instead of a plain `+=`; `test/test-Elapsed.cpp` adds 3 tests for it (normal
       case, sum landing exactly on `UINT32_MAX` via the non-saturating path, and the actual
       near-the-top-of-range case that must cap rather than wrap).
+      Surfaced in the status UI 2026-07-14: `HoldoverStatus` gained an `elapsedMs` field
+      alongside `inHoldover`/`dispersion`; `slower_poll()` pushes all three into `WebContent` via
+      a new `setHoldover()` (same push pattern as `setPPSData`/`setLocalClock`), which adds them
+      to `jsonState()`. `index_html.h`/`index_js.h` render them as "In holdover" (yes/no),
+      "Holdover dispersion estimate" (converted from NTP-short 16.16 fixed-point to seconds), and
+      "Holdover elapsed" (ms converted to seconds) -- previously `dispersion` wasn't exposed to
+      the dashboard at all, and during an actual holdover episode the rest of the page (`clockPpb`,
+      `pidD`, etc.) just froze at its last value with no indication the clock had switched to
+      D-only free-running.
 - [ ] **The existing lag check is wraparound-unsafe for long outages.**
       `ppsToGPS = gps.capturedAt() - gps.ppsMillis()` (teensy-ntp.ino:161) relies on unsigned
       subtraction of two `millis()` values, which only gives a correct "looks small" result if

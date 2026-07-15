@@ -20,7 +20,7 @@ static uint32_t growDispersion(uint32_t base, uint32_t elapsedMs) {
 }
 
 HoldoverStatus ClockHoldover::poll(uint32_t nowMillis) {
-  HoldoverStatus status = {false, 0};
+  HoldoverStatus status = {false, 0, 0};
 
   if (!everSeen_) {
     return status;
@@ -57,5 +57,6 @@ HoldoverStatus ClockHoldover::poll(uint32_t nowMillis) {
 
   status.inHoldover = true;
   status.dispersion = growDispersion(lastGoodDispersion_, holdoverElapsedMs_);
+  status.elapsedMs = holdoverElapsedMs_;
   return status;
 }

@@ -175,6 +175,7 @@ static void slower_poll() {
     if(hs.inHoldover) {
       server.setDispersion(hs.dispersion);
     }
+    webcontent.setHoldover(hs.inHoldover, hs.dispersion, hs.elapsedMs);
 
     msec = 0;
   }

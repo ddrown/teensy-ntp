@@ -56,6 +56,7 @@ void test_enters_holdover_and_drives_d_only_ppb() {
 
   TEST_ASSERT_TRUE(hs.inHoldover);
   TEST_ASSERT_EQUAL(dOnlyPpb, clock.getPpb());
+  TEST_ASSERT_TRUE(hs.elapsedMs > 0);
 }
 
 // Dispersion should grow monotonically the longer holdover runs, starting
@@ -69,7 +70,7 @@ void test_dispersion_grows_incrementally_while_in_holdover() {
   h.noteSampleReceived(0);
 
   uint32_t now = 0;
-  HoldoverStatus prev = {false, 0};
+  HoldoverStatus prev = {false, 0, 0};
   bool sawGrowth = false;
   for (int i = 0; i < 20; i++) {
     now += 1000; // poll roughly once/sec, matching slower_poll()'s cadence
@@ -77,6 +78,7 @@ void test_dispersion_grows_incrementally_while_in_holdover() {
     if (hs.inHoldover) {
       if (prev.inHoldover) {
         TEST_ASSERT_TRUE(hs.dispersion >= prev.dispersion);
+        TEST_ASSERT_TRUE(hs.elapsedMs >= prev.elapsedMs);
         if (hs.dispersion > prev.dispersion) {
           sawGrowth = true;
         }
@@ -87,6 +89,7 @@ void test_dispersion_grows_incrementally_while_in_holdover() {
 
   TEST_ASSERT_TRUE(sawGrowth);
   TEST_ASSERT_TRUE(prev.dispersion > 2000);
+  TEST_ASSERT_TRUE(prev.elapsedMs > 0);
 }
 
 // A single abnormally-large gap between poll() calls (a stalled loop(), not
@@ -108,6 +111,7 @@ void test_large_poll_gap_does_not_inflate_dispersion() {
   now += HOLDOVER_POLL_MAX_GAP_MS + 10000; // far larger than the trusted per-tick gap
   HoldoverStatus after = h.poll(now);
   TEST_ASSERT_TRUE(after.inHoldover);
+  TEST_ASSERT_EQUAL(before.elapsedMs, after.elapsedMs);
   TEST_ASSERT_EQUAL(before.dispersion, after.dispersion);
 }
 
@@ -124,13 +128,14 @@ void test_fresh_sample_resets_holdover_state() {
   h.noteSampleReceived(0);
 
   uint32_t now = 0;
-  HoldoverStatus stale = {false, 0};
+  HoldoverStatus stale = {false, 0, 0};
   for (int i = 0; i < 20; i++) {
     now += 1000;
     stale = h.poll(now);
   }
   TEST_ASSERT_TRUE(stale.inHoldover);
   TEST_ASSERT_TRUE(stale.dispersion > 2000);
+  TEST_ASSERT_TRUE(stale.elapsedMs > 5000);
 
   // GPS resumes: leaves holdover immediately and records a new baseline.
   now += 100;
@@ -144,7 +149,7 @@ void test_fresh_sample_resets_holdover_state() {
   // this would inherit ~16s worth of holdover duration from the episode
   // above and grow well past the fresh baseline; it should instead grow by
   // only a tick or two.
-  HoldoverStatus staleAgain = {false, 0};
+  HoldoverStatus staleAgain = {false, 0, 0};
   for (int i = 0; i < 20 && !staleAgain.inHoldover; i++) {
     now += 1000;
     staleAgain = h.poll(now);
@@ -152,6 +157,7 @@ void test_fresh_sample_resets_holdover_state() {
   TEST_ASSERT_TRUE(staleAgain.inHoldover);
   TEST_ASSERT_TRUE(staleAgain.dispersion >= 3000);
   TEST_ASSERT_TRUE(staleAgain.dispersion - 3000 < 5);
+  TEST_ASSERT_TRUE(staleAgain.elapsedMs < stale.elapsedMs);
 }
 
 int main(int argc, char **argv) {
