@@ -9,3 +9,4 @@ test/test-InputCapture
 test/test-ClockDiscipline
 test/test-Elapsed
 test/test-ClockHoldover
+test/test-LeapSeconds

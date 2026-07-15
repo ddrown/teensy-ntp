@@ -55,6 +55,26 @@ Notes from a code review, roughly ordered by priority. Completed items have been
         still carry a type field for completeness, since `NTP_LEAP_59S` is already defined in
         NTPServer.h and unused). Refreshed on firmware rebuilds as IERS Bulletin C announces
         new ones (typically ~6 months' notice).
+        Table built 2026-07-15: `LeapSeconds.h/.cpp`, format mirrors the real
+        `leap-seconds.list` directly (NTP timestamp the new offset takes effect, paired with
+        the *cumulative* TAI-UTC offset rather than a delta, so no summing is needed at lookup
+        time) — all 28 real entries from 1972-01-01 through the current 37s baseline
+        (2017-01-01), hand-computed and cross-checked against `DateTime`'s independently
+        implemented calendar math in `test/test-LeapSeconds.cpp` (only checkable for the
+        2017 entry -- `date2days()` is documented valid for 2001..2178 only, DateTime.cpp:11,
+        so the 1972 baseline entry is outside what `DateTime` itself can represent). Two pure
+        lookups: `leapSecondOffsetAt(ntpTime)` (cumulative offset in effect, for the
+        `DateTime` monotonic-conversion fix below) and `leapSecondPendingToday(ntpTime, &type)`
+        (for `NTPServer::recv()`'s `leap` field, below) — both scan the table from the end
+        since the entry in effect is always the *last* one whose `effectiveNtpTime` has passed
+        (caught in review: an earlier forward-scan-with-`break` draft was accidentally correct
+        but indirect enough to be worth simplifying rather than trusting). 10 tests cover: the
+        DateTime cross-check, before-the-first-entry defaulting to offset 0, the exact-instant
+        boundary (offset flips *at* `effectiveNtpTime`, not before), one second on each side of
+        that boundary, holding the last known offset indefinitely past the newest entry, and
+        the pending-day window's own boundaries (starts fresh at day-start, still pending one
+        second before the instant, no longer pending exactly at it). Not yet wired into
+        `NTPServer`/`DateTime` -- this is just the standalone, tested lookup module.
       - Considered and dropped a runtime web-API override for the gap between "IERS
         announces one" and "next firmware rebuild/reflash": leap seconds are announced ~6
         months ahead and happen at most once a year (and are being phased out by 2035 per
