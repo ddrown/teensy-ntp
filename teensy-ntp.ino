@@ -8,6 +8,7 @@
 #include "ClockPID.h"
 #include "ClockDiscipline.h"
 #include "ClockHoldover.h"
+#include "Elapsed.h"
 #include "NTPServer.h"
 #include "NTPClients.h"
 #include "platform-clock.h"
@@ -115,9 +116,17 @@ void updateTime(uint32_t gpstime) {
     return;
   }
 
+  // Raw subtraction for display only (webcontent's "PPS to GPS" field) --
+  // if PPS has actually stopped for a very long time this can itself wrap,
+  // but that's cosmetic; the accept/reject decision below must not rely on
+  // it, since a wrapped-around gap could otherwise silently look "fresh"
+  // again and pass the lag check. See TODO.md, "existing lag check is
+  // wraparound-unsafe for long outages".
   uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
   webcontent.setPPSData(ppsToGPS, gps.ppsMillis(), gpstime);
-  if(ppsToGPS > 950) { // allow 950ms between PPS and GPS message
+
+  uint32_t validatedLag;
+  if(!elapsedWithin(gps.capturedAt(), gps.ppsMillis(), 950, &validatedLag)) { // allow 950ms between PPS and GPS message
     Serial.print("LAG ");
     Serial.print(ppsToGPS);
     Serial.print(" ");

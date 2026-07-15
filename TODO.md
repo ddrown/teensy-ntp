@@ -98,7 +98,7 @@ Notes from a code review, roughly ordered by priority.
       the dashboard at all, and during an actual holdover episode the rest of the page (`clockPpb`,
       `pidD`, etc.) just froze at its last value with no indication the clock had switched to
       D-only free-running.
-- [ ] **The existing lag check is wraparound-unsafe for long outages.**
+- [x] **The existing lag check is wraparound-unsafe for long outages.**
       `ppsToGPS = gps.capturedAt() - gps.ppsMillis()` (teensy-ntp.ino:161) relies on unsigned
       subtraction of two `millis()` values, which only gives a correct "looks small" result if
       the true gap is under ~24.8 days (half of the 32-bit `millis()` wrap period, ~49.7 days).
@@ -106,6 +106,19 @@ Notes from a code review, roughly ordered by priority.
       "looks fresh" territory and silently pass the `> 950` check again. Any new watchdog logic
       needs its own explicit bounded-window wraparound-safe comparison — it can't reuse this
       same subtraction trick unmodified if it's meant to catch outages that can run indefinitely.
+      Fixed 2026-07-14: the accept/reject decision in `updateTime()` now goes through
+      `elapsedWithin(gps.capturedAt(), gps.ppsMillis(), 950, &validatedLag)` instead of raw
+      subtraction + `> 950` -- same 950ms boundary, inclusive at exactly 950 either way, so no
+      behavior change in the normal case, but now provably rejects a wrapped-around gap instead of
+      risking it looking "fresh". The raw subtraction (`ppsToGPS`) is kept alongside, unchanged,
+      purely for the `webcontent`/`Serial` "LAG" diagnostic display -- that's cosmetic (a human
+      glancing at a wrapped-small number on the status page), not a correctness decision, so it
+      wasn't worth threading the validated value through display too. (In practice this exact
+      divergence is hard to trigger given how `GPSDateTime::decodeType()` couples
+      `ppsMillis_`/`dateMillis` together -- both only update inside the same
+      `pps.getCaptures()`-gated block -- so they tend to freeze as a pair rather than one running
+      ahead of the other; fixed anyway for defense in depth and to close out the loose end noted
+      below.)
 - [ ] **Mixed timestamp domains make this easy to get wrong twice.** The codebase compares/
       subtracts across at least three different clock domains without a shared abstraction:
       `millis()` (1 kHz, wraps ~49.7 days — used by `InputCapture`/`GPSDateTime` for
@@ -126,8 +139,13 @@ Notes from a code review, roughly ordered by priority.
       across the whole outage (documented in the header). `test/test-Elapsed.cpp` covers the
       normal case, the exact-boundary-is-valid case, just-past-boundary rejection, a real wrap
       (`then` near `UINT32_MAX`, `now` just past `0`), `then` ahead of `now`, and a long-outage
-      gap. Now wired into `ClockHoldover`'s staleness and per-poll-tick duration accumulation (see
-      the design item above) — still not used at the existing `ppsToGPS` lag check site.
+      gap. Wired into `ClockHoldover`'s staleness and per-poll-tick duration accumulation (see the
+      design item above) and, as of 2026-07-14, the existing `ppsToGPS` lag check site too (see
+      the item above) -- no known remaining raw *millis()-domain* duration subtraction outside
+      `Elapsed.h` itself and `webcontent`'s cosmetic display value. Not yet applied to the
+      NTP-seconds domain: `NTPClients::expireClients()` (NTPClients.cpp:55) still computes
+      `expire_time = sec - 4096` via raw subtraction on NTP seconds, not milliseconds -- same
+      general risk class, different domain/wrap period, untouched by this round.
 
 ## Bugs / fragile areas
 
