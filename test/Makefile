@@ -30,6 +30,7 @@ test-DateTime: test-DateTime.o DateTime.o $(LIBS)
 test-GPS: test-GPS.o DateTime.o GPS.o $(LIBS)
 test-NTPClock: test-NTPClock.o NTPClock.o $(LIBS)
 test-ClockPID: test-ClockPID.o ClockPID.o $(LIBS)
+test-ClockDiscipline: test-ClockDiscipline.o ClockDiscipline.o ClockPID.o NTPClock.o $(LIBS)
 test-InputCapture: test-InputCapture.o InputCapture.o $(LIBS)
 
 $(BINS):

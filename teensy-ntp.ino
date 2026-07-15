@@ -6,6 +6,7 @@
 #include "GPS.h"
 #include "NTPClock.h"
 #include "ClockPID.h"
+#include "ClockDiscipline.h"
 #include "NTPServer.h"
 #include "NTPClients.h"
 #include "platform-clock.h"
@@ -15,21 +16,13 @@
 // see the settings file for common settings
 #include "settings.h"
 
-#define WAIT_COUNT 3
-
 GPSDateTime gps(&GPS_SERIAL);
 NTPClock localClock;
 NTPClients clientList;
 InputCapture pps;
 elapsedMillis msec, epoll_msec;
 uint32_t compileTime;
-uint8_t settime = 0;
-uint8_t wait = WAIT_COUNT-1;
-struct {
-  int64_t offset;
-  uint32_t pps;
-  uint32_t gpstime;
-} samples[WAIT_COUNT];
+ClockDiscipline discipline(&localClock, &ClockPID);
 NTPServer server(&localClock);
 
 static void netif_status_callback(struct netif *netif) {
@@ -115,44 +108,6 @@ void setup() {
   epoll_msec = 0;
 }
 
-static uint8_t median(int64_t one, int64_t two, int64_t three) {
-  if(one > two) {
-    if(one > three) {
-      if(two > three) {
-        // 1 2 3
-        return 2-1;
-      } else {
-        // 1 3 2
-        return 3-1;
-      }
-    } else {
-      // 3 1 2
-      return 1-1;
-    }
-  } else {
-    if(two > three) {
-      if(one > three) {
-        // 2 1 3
-        return 1-1;
-      } else {
-        // 2 3 1
-        return 3-1;
-      }
-    } else {
-      // 3 2 1
-      return 2-1;
-    }
-  }
-}
-
-static uint32_t ntp64_to_32(int64_t offset) {
-  if(offset < 0)
-    offset *= -1;
-  // take 16bits off the bottom and top
-  offset = offset >> 16;
-  return offset & 0xffffffff;
-}
-
 void updateTime(uint32_t gpstime) {
   if(gps.ppsMillis() == 0) {
     return;
@@ -170,50 +125,29 @@ void updateTime(uint32_t gpstime) {
     return;
   }
 
-  uint32_t lastPPS = gps.ppsCounter();
-  if(settime) {
-    int64_t offset = localClock.getOffset(lastPPS, gpstime, 0);
-    samples[wait].offset = offset;
-    samples[wait].pps = lastPPS;
-    samples[wait].gpstime = gpstime;
-    if(ClockPID.full() && wait) {
-      wait--;
-    } else {
-      uint8_t median_index = wait;
-      if(wait == 0) {
-        median_index = median(samples[0].offset, samples[1].offset, samples[2].offset);
-      }
-      ClockPID.add_sample(samples[median_index].pps, samples[median_index].gpstime, samples[median_index].offset);
-      localClock.setRefTime(samples[median_index].gpstime);
-      localClock.setPpb(ClockPID.out() * 1000000000.0);
-      wait = WAIT_COUNT-1; // (2+1)*16=48s, 80MHz wraps at 53s
-
-      // TODO: this should grow when out of sync
-      server.setDispersion(ntp64_to_32(samples[median_index].offset));
-      server.setReftime(samples[median_index].gpstime);
-
-      double offsetHuman = samples[median_index].offset / (double)4294967296.0;
-      webcontent.setLocalClock(samples[median_index].pps, offsetHuman, ClockPID.d(), ClockPID.d_chi(), localClock.getPpb(), gpstime);
-      Serial.print(samples[median_index].pps);
-      Serial.print(" ");
-      Serial.print(offsetHuman, 9);
-      Serial.print(" ");
-      Serial.print(ClockPID.d(), 9);
-      Serial.print(" ");
-      Serial.print(ClockPID.d_chi(), 9);
-      Serial.print(" ");
-      Serial.print(localClock.getPpb());
-      Serial.print(" ");
-      Serial.println(samples[median_index].gpstime);
-    }
-  } else {
-    localClock.setTime(lastPPS, gpstime);
-    ClockPID.add_sample(lastPPS, gpstime, 0);
-    settime = 1;
+  DisciplineResult r = discipline.process(gps.ppsCounter(), gpstime);
+  if(r.clockSet) {
     Serial.print("S "); // clock set message
-    Serial.print(lastPPS);
+    Serial.print(r.pps);
     Serial.print(" ");
-    Serial.println(gpstime);
+    Serial.println(r.gpstime);
+  } else if(r.updated) {
+    server.setDispersion(r.dispersion);
+    server.setReftime(r.gpstime);
+
+    double offsetHuman = r.offset / (double)4294967296.0;
+    webcontent.setLocalClock(r.pps, offsetHuman, ClockPID.d(), ClockPID.d_chi(), localClock.getPpb(), gpstime);
+    Serial.print(r.pps);
+    Serial.print(" ");
+    Serial.print(offsetHuman, 9);
+    Serial.print(" ");
+    Serial.print(ClockPID.d(), 9);
+    Serial.print(" ");
+    Serial.print(ClockPID.d_chi(), 9);
+    Serial.print(" ");
+    Serial.print(localClock.getPpb());
+    Serial.print(" ");
+    Serial.println(r.gpstime);
   }
 }
 

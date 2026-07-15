@@ -6,6 +6,21 @@ Notes from a code review, roughly ordered by priority.
 
 - [ ] **Design: degrade gracefully via D-only holdover + growing estimated dispersion, instead
       of (or in addition to) a hard watchdog timeout.** Preferred shape, discussed 2026-07-13:
+      Step 1 done 2026-07-14: extracted the median-of-3/PID-feed/dispersion orchestration that
+      used to live inline in `teensy-ntp.ino`'s `updateTime()` into a new `ClockDiscipline` class
+      (`ClockDiscipline.h/.cpp`, global `discipline`), constructed with pointers to `localClock`
+      and `ClockPID` (same DI pattern `NTPServer` already uses). `updateTime()` now just does the
+      PPS-to-GPS lag check and calls `discipline.process(pps, gpstime)`, using the returned
+      `DisciplineResult` (`clockSet`/`updated`/`ppb`/`dispersion`/...) to decide what to log and
+      push to `server`/`webcontent`. No behavior change -- `median()`/`ntp64_to_32()` and the
+      bootstrap-vs-full-PID resolve cadence were moved verbatim. This was previously *zero*-percent
+      covered by tests (only reachable via the untested `.ino`); `test/test-ClockDiscipline.cpp`
+      now covers the initial clock-set, the bootstrap phase (resolves every call before the PID
+      has 16 samples), the steady-state buffer-2-then-resolve-on-3rd cadence once full, the
+      median-of-3 selection (two arrival orders), and that localClock/dispersion are only touched
+      on a resolving call, not the two buffering ones. This is the seam the holdover feature
+      itself (D-only ppb output, growing dispersion during an outage) will plug into next, along
+      with the wraparound-safe elapsed-time helper called out below.
       - While samples are arriving normally, discipline the clock with the full P+I+D output as
         today (`ClockPID.out()`, ClockPID.cpp:166 → `localClock.setPpb()`, teensy-ntp.ino:188).
       - Once PPS/GPS samples stop arriving (detected via the existing lag/staleness signal),
