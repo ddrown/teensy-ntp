@@ -37,10 +37,76 @@ Notes from a code review, roughly ordered by priority. Completed items have been
       require this specific device to run continuously for many decades -- not a realistic risk
       for this deployment. Left untouched by this round; noted for completeness, not urgency.
 
+## Leap second handling (open issue)
+
+- [ ] **Design: compiled-in leap-second table, step-only (no smear), no web override.**
+      Discussed 2026-07-14. `response->leap` is hardcoded to `NTP_LEAP_NONE` today
+      (NTPServer.cpp:58, `TODO: no leap second support`) — relevant if this ever needs to be
+      a stratum-1 source other systems depend on for a long-running deployment. NMEA has no
+      vendor-neutral way to signal an upcoming leap second (only proprietary extensions like
+      u-blox's `UBX-NAV-TIMELS`), and depending on one locks the firmware to a single GPS
+      vendor. Rather than get this from the GPS receiver at all, follow the approach
+      ntpd/chrony/ntpsec already use: consult a known table of leap-second dates, the same
+      idea as IERS/NIST's published `leap-seconds.list`.
+      - A small compiled-in table (new `LeapSeconds.h/.cpp`), the same "pre-generated static
+        data" pattern already used for `index_html.h`/`index_js.h` — an ascending array of
+        NTP timestamps marking each known leap-second insertion (every leap second since
+        1972 has been an insertion; no deletion has ever happened, but the table entry should
+        still carry a type field for completeness, since `NTP_LEAP_59S` is already defined in
+        NTPServer.h and unused). Refreshed on firmware rebuilds as IERS Bulletin C announces
+        new ones (typically ~6 months' notice).
+      - Considered and dropped a runtime web-API override for the gap between "IERS
+        announces one" and "next firmware rebuild/reflash": leap seconds are announced ~6
+        months ahead and happen at most once a year (and are being phased out by 2035 per
+        the ITU decision anyway), so "rebuild before the next one" is a low-frequency,
+        low-stakes maintenance task, not an operational burden — not worth a new
+        unauthenticated web endpoint that can alter NTP protocol signaling, or the
+        flash/EEPROM persistence work needed to survive a reboot (no persistent storage
+        exists anywhere in this codebase today; `settings.h` is compile-time only). If this
+        ever becomes worth revisiting, reconsider then rather than building it speculatively
+        now.
+      - `NTPServer::recv()`'s `response->leap = NTP_LEAP_NONE` becomes a lookup against the
+        compiled table: `NTP_LEAP_61S` once within the current UTC day of a scheduled
+        insertion, `NTP_LEAP_NONE` otherwise.
+      - Step, not smear: at the moment the leap second occurs, step the local clock
+        representation by the extra second rather than spreading the correction over the
+        surrounding day. Simpler to implement, and matches what a stratum-1 GPS-disciplined
+        source is expected to do — leap smearing is a technique secondary
+        servers/cloud providers use to hide leap seconds from clients that can't handle them,
+        not something a primary reference clock does.
+      - **Resolved 2026-07-14, `DateTime` does need a real fix, and it's this one:**
+        `DateTime::ntptime()`/`unixtime()` (`time2long()`, DateTime.cpp:31, already flagged
+        there as ignoring leap seconds) do plain linear `days*86400 + h*3600 + m*60 + s`
+        arithmetic. If GPS ever reports a literal `23:59:60` for an inserted leap second,
+        that computes to the *exact same* value as the following `00:00:00` — confirmed with
+        `test_leap_second_ntptime_collides_with_next_day` in `test/test-DateTime.cpp` (real
+        2016-12-31 leap second date; both sides equal `536544000` — no bounds-checking on
+        `second` rejects or clamps 60, `test_second_60_does_not_corrupt_fields` confirms the
+        other fields at least survive intact). Two distinct PPS pulses a full second apart
+        would alias to the same `realSecond` value fed into `ClockDiscipline`/`ClockPID`,
+        which reads as zero elapsed real-time for one PPS interval's worth of hardware-counter
+        ticks and corrupts the Theil-Sen drift-rate regression for as long as that sample
+        stays in `ClockPID`'s 16-deep window (~48s at the current resolve cadence). A deletion
+        (never yet happened, but `NTP_LEAP_59S` exists) would produce the opposite artifact —
+        an apparent +2s jump.
+        Fix: make `ntptime()`/`unixtime()` monotonic ("TAI-like", though it doesn't need to be
+        literally standards-defined TAI — just internally self-consistent) by adding a
+        `leapSecondsSoFar(date)` cumulative-offset term, sourced from the same
+        `LeapSeconds` table, to the linear day/time arithmetic. `ClockPID`/`ClockDiscipline`/
+        `NTPClock` need *no* math changes for this — their regression/offset calculations are
+        already difference-based (e.g. `realSeconds[i] - realSeconds[0]` in
+        `ClockPID_c::calculate_d()`), so a constant offset cancels out and a step-change
+        mid-window is exactly what they're already equipped to handle correctly once the
+        input is genuinely monotonic. The one place that *does* need an explicit reverse
+        conversion is `NTPServer`'s outgoing packet assembly, since the wire format is
+        standards-defined UTC-seconds-since-1900 (the reason NTP has the `leap` field at all)
+        — subtract the cumulative offset back out there, using the same table. Still needs
+        confirming against how the specific GPS module in use actually behaves during the
+        leap-second minute (some receivers emit a valid `:60`, others skip straight to `:00`
+        or repeat `:59`) — the fix above assumes a receiver that does emit `:60`.
+
 ## Design / future work
 
-- [ ] No leap-second handling (`TODO` already in NTPServer.cpp:58) — relevant if this ever
-      needs to be a stratum-1 source other systems depend on for a long-running deployment.
 - [ ] `NTPClients` (NTPClients.cpp) does an O(n) linear scan over all 100 client slots on every
       packet (`addRx`/`addTx`/`findClient`/`expireClients`). Fine at n=100, but note if
       `NUMCLIENTS` ever grows significantly.

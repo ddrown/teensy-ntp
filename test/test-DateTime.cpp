@@ -50,11 +50,48 @@ void test_century_not_leap() {
   TEST_ASSERT_EQUAL(2100, roundtrip.year());
 }
 
+// GPS receivers may report a literal ":60" seconds field during a real leap
+// second insertion (e.g. 2016-12-31 23:59:60 UTC was a real one). DateTime
+// does no bounds-checking on `second` -- confirm that at least doesn't
+// corrupt the other fields or crash, independent of whether the resulting
+// ntptime() is numerically correct (see the next test -- it isn't yet).
+void test_second_60_does_not_corrupt_fields() {
+  DateTime leap = DateTime(2016, 12, 31, 23, 59, 60);
+  TEST_ASSERT_EQUAL(2016, leap.year());
+  TEST_ASSERT_EQUAL(12, leap.month());
+  TEST_ASSERT_EQUAL(31, leap.day());
+  TEST_ASSERT_EQUAL(23, leap.hour());
+  TEST_ASSERT_EQUAL(59, leap.minute());
+  TEST_ASSERT_EQUAL(60, leap.second());
+}
+
+// Known limitation, not yet fixed: DateTime::ntptime() ignores leap seconds
+// entirely (time2long() is a plain linear day*86400+h*3600+m*60+s sum), so
+// a reported ":60" collides with the following day's ":00" -- both compute
+// to the exact same NTP-seconds value, even though they're two distinct PPS
+// pulses a full second apart. Left in ClockDiscipline's median-of-3/PID
+// window, that reads as zero elapsed real-time for one PPS interval's worth
+// of hardware-counter ticks and corrupts the drift-rate regression for as
+// long as the sample stays in ClockPID's 16-deep window.
+//
+// See TODO.md, "Leap second handling": the planned fix makes
+// ntptime()/unixtime() leap-second-aware (monotonic) via a compiled
+// leap-second table. When that lands, this assertion should flip to
+// dec31_leap.ntptime() + 1 == jan1.ntptime() instead.
+void test_leap_second_ntptime_collides_with_next_day() {
+  DateTime dec31_leap = DateTime(2016, 12, 31, 23, 59, 60);
+  DateTime jan1 = DateTime(2017, 1, 1, 0, 0, 0);
+
+  TEST_ASSERT_EQUAL(dec31_leap.ntptime(), jan1.ntptime());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ntpdate);
   RUN_TEST(test_stringdate);
   RUN_TEST(test_numberdate);
   RUN_TEST(test_century_not_leap);
+  RUN_TEST(test_second_60_does_not_corrupt_fields);
+  RUN_TEST(test_leap_second_ntptime_collides_with_next_day);
   return UNITY_END();
 }
