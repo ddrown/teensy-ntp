@@ -4,7 +4,7 @@ Notes from a code review, roughly ordered by priority.
 
 ## GPS lock lost / PPS stopped (open issue)
 
-- [ ] **Design: degrade gracefully via D-only holdover + growing estimated dispersion, instead
+- [x] **Design: degrade gracefully via D-only holdover + growing estimated dispersion, instead
       of (or in addition to) a hard watchdog timeout.** Preferred shape, discussed 2026-07-13:
       Step 1 done 2026-07-14: extracted the median-of-3/PID-feed/dispersion orchestration that
       used to live inline in `teensy-ntp.ino`'s `updateTime()` into a new `ClockDiscipline` class
@@ -45,6 +45,50 @@ Notes from a code review, roughly ordered by priority.
         rather than snapping straight from "fully synced" to "unsynced."
       - Still needs the elapsed-time tracking called out below (last successful sample time,
         wraparound-safe) to know how long holdover has lasted and how fast to grow dispersion.
+      Step 2 done 2026-07-14: added `ClockHoldover` (`ClockHoldover.h/.cpp`, global `holdover`),
+      constructed with the same `NTPClock*`/`ClockPID_c*` DI as `ClockDiscipline`. `updateTime()`
+      calls `holdover.noteSampleReceived(millis())` on every accepted sample (regardless of
+      whether it resolved into a PID update -- resolves only happen every 3rd call once the PID is
+      full, but any accepted sample is evidence GPS/PPS is alive) and `holdover.noteDispersion()`
+      whenever a resolve produces a fresh real dispersion value; `slower_poll()` now calls
+      `holdover.poll(millis())` about once/sec and pushes `server.setDispersion()` with the
+      returned value whenever holdover is active. Inside `poll()`: staleness is a plain
+      `elapsedWithin(now, lastGood, HOLDOVER_STALE_MS, ...)` check (both failure modes of that
+      call -- genuinely stale, or an ambiguous/wrapped gap -- correctly mean "not confirmed
+      fresh"); once stale, `localClock.setPpb()` is driven from `ClockPID.d_out()` alone instead
+      of `out()`; holdover duration is accumulated incrementally as bounded per-poll-tick deltas
+      (`elapsedWithin(now, lastPoll, HOLDOVER_POLL_MAX_GAP_MS, ...)`, dropped rather than added if
+      a tick's gap is implausibly large) rather than a single subtraction across the whole outage,
+      per the wraparound-safety rule in `Elapsed.h`; dispersion grows off that duration via a
+      `HOLDOVER_PHI_PPM`-per-second model, base-lined from the last real dispersion
+      (`noteDispersion()`), and saturates instead of wrapping if it somehow ran long enough to
+      approach `uint32_t` overflow. `test/test-ClockHoldover.cpp` covers: no holdover before the
+      first-ever sample; staying fresh through the inclusive `HOLDOVER_STALE_MS` boundary; that
+      holdover drives `d_out()`-only ppb rather than the full P+I+D `out()` (seeded so the two
+      genuinely differ, so this would catch a regression back to the full output); dispersion
+      growing monotonically over repeated ~1/sec polls; a single abnormally-large poll-to-poll gap
+      not inflating dispersion; and a fresh sample arriving mid-holdover fully resetting state
+      (leaves holdover immediately, and a subsequent stale episode grows from the new baseline
+      instead of resuming the old accumulated duration). The existing `ppsToGPS` lag check
+      (teensy-ntp.ino, item below) is untouched and still uses raw subtraction -- it wasn't the
+      target of this step, since GPS going fully silent never reaches it at all (no new NMEA
+      sentence means `gps_serial_poll()` never calls `updateTime()`); `ClockHoldover` detects that
+      case independently via its own polling, not by reusing that check.
+      `HOLDOVER_STALE_MS` raised from 2000 to 4000 after review: a single transient `ppsToGPS`
+      lag rejection (already tolerated as normal jitter, not an outage) doubles the gap between
+      accepted samples to ~2000ms on its own, and `poll()` runs on its own unsynchronized ~1Hz
+      cycle from `slower_poll()`, adding up to another ~1000ms of phase jitter -- 4000ms leaves
+      margin above that combined worst case.
+      A second wraparound gap found by review (not a test) before this shipped:
+      `holdoverElapsedMs_` itself was a plain `uint32_t` millisecond accumulator with no bound,
+      so an outage lasting past ~49.7 days would wrap it back to a small value, in turn making
+      `growDispersion()` compute a small dispersion again -- silently reporting "looks synced"
+      after a holdover measured in weeks, the same failure class `Elapsed.h` exists to prevent,
+      just relocated to a new counter. Fixed by adding `saturatingAddMs()` to `Elapsed.h/.cpp`
+      (pins at `UINT32_MAX` instead of wrapping) and using it for the `holdoverElapsedMs_ +=`
+      accumulation instead of a plain `+=`; `test/test-Elapsed.cpp` adds 3 tests for it (normal
+      case, sum landing exactly on `UINT32_MAX` via the non-saturating path, and the actual
+      near-the-top-of-range case that must cap rather than wrap).
 - [ ] **The existing lag check is wraparound-unsafe for long outages.**
       `ppsToGPS = gps.capturedAt() - gps.ppsMillis()` (teensy-ntp.ino:161) relies on unsigned
       subtraction of two `millis()` values, which only gives a correct "looks small" result if
@@ -73,8 +117,8 @@ Notes from a code review, roughly ordered by priority.
       across the whole outage (documented in the header). `test/test-Elapsed.cpp` covers the
       normal case, the exact-boundary-is-valid case, just-past-boundary rejection, a real wrap
       (`then` near `UINT32_MAX`, `now` just past `0`), `then` ahead of `now`, and a long-outage
-      gap. Not yet wired into the existing `ppsToGPS` lag check or any holdover polling — next
-      step is using it to drive the D-only/growing-dispersion holdover logic above.
+      gap. Now wired into `ClockHoldover`'s staleness and per-poll-tick duration accumulation (see
+      the design item above) — still not used at the existing `ppsToGPS` lag check site.
 
 ## Bugs / fragile areas
 

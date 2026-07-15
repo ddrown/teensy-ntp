@@ -8,3 +8,11 @@ bool elapsedWithin(uint32_t now, uint32_t then, uint32_t maxWindow, uint32_t *el
   *elapsedOut = gap;
   return true;
 }
+
+uint32_t saturatingAddMs(uint32_t a, uint32_t b) {
+  uint32_t sum = a + b;
+  if (sum < a) { // wrapped past UINT32_MAX
+    return UINT32_MAX;
+  }
+  return sum;
+}

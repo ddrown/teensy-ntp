@@ -53,6 +53,28 @@ void test_long_outage_exceeds_window() {
   TEST_ASSERT_EQUAL(0xdeadbeef, elapsed);
 }
 
+void test_saturating_add_normal_case() {
+  TEST_ASSERT_EQUAL(300, saturatingAddMs(100, 200));
+  TEST_ASSERT_EQUAL(100, saturatingAddMs(100, 0));
+}
+
+// Sum lands exactly on UINT32_MAX -- no overflow actually occurred, so this
+// must come back out of the normal (non-saturating) path with the exact
+// value, not just happen to read UINT32_MAX from the saturation branch.
+void test_saturating_add_exact_boundary_is_not_wrapped() {
+  TEST_ASSERT_EQUAL(UINT32_MAX, saturatingAddMs(UINT32_MAX - 1000, 1000));
+}
+
+// This is the case that matters: a running total near the top of the
+// 32-bit range must pin at UINT32_MAX instead of wrapping back to a small
+// value, which is exactly the "looks fresh again" failure this helper
+// exists to prevent for an open-ended accumulator.
+void test_saturating_add_caps_instead_of_wrapping() {
+  uint32_t result = saturatingAddMs(UINT32_MAX - 500, 1000);
+  TEST_ASSERT_EQUAL(UINT32_MAX, result);
+  TEST_ASSERT_TRUE(result > UINT32_MAX - 500); // i.e. did not wrap small
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_normal_gap_within_window);
@@ -62,5 +84,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_wraparound_short_gap_is_still_valid);
   RUN_TEST(test_then_after_now_is_rejected);
   RUN_TEST(test_long_outage_exceeds_window);
+  RUN_TEST(test_saturating_add_normal_case);
+  RUN_TEST(test_saturating_add_exact_boundary_is_not_wrapped);
+  RUN_TEST(test_saturating_add_caps_instead_of_wrapping);
   return UNITY_END();
 }

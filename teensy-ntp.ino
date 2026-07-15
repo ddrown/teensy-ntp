@@ -7,6 +7,7 @@
 #include "NTPClock.h"
 #include "ClockPID.h"
 #include "ClockDiscipline.h"
+#include "ClockHoldover.h"
 #include "NTPServer.h"
 #include "NTPClients.h"
 #include "platform-clock.h"
@@ -23,6 +24,7 @@ InputCapture pps;
 elapsedMillis msec, epoll_msec;
 uint32_t compileTime;
 ClockDiscipline discipline(&localClock, &ClockPID);
+ClockHoldover holdover(&localClock, &ClockPID);
 NTPServer server(&localClock);
 
 static void netif_status_callback(struct netif *netif) {
@@ -126,12 +128,14 @@ void updateTime(uint32_t gpstime) {
   }
 
   DisciplineResult r = discipline.process(gps.ppsCounter(), gpstime);
+  holdover.noteSampleReceived(millis());
   if(r.clockSet) {
     Serial.print("S "); // clock set message
     Serial.print(r.pps);
     Serial.print(" ");
     Serial.println(r.gpstime);
   } else if(r.updated) {
+    holdover.noteDispersion(r.dispersion);
     server.setDispersion(r.dispersion);
     server.setReftime(r.gpstime);
 
@@ -166,6 +170,11 @@ static void slower_poll() {
 
     // remove old NTP clients
     clientList.expireClients();
+
+    HoldoverStatus hs = holdover.poll(millis());
+    if(hs.inHoldover) {
+      server.setDispersion(hs.dispersion);
+    }
 
     msec = 0;
   }

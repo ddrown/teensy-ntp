@@ -26,3 +26,12 @@
 // "ahead of" now, which wraps around to a huge gap and is correctly
 // rejected as implausible.
 bool elapsedWithin(uint32_t now, uint32_t then, uint32_t maxWindow, uint32_t *elapsedOut);
+
+// Saturating add for millisecond-domain accumulators that track an
+// open-ended duration (e.g. total time spent in an ongoing outage) by
+// summing bounded elapsedWithin() ticks. A plain `a + b` would wrap back to
+// a small value once the running total passes UINT32_MAX ms (~49.7 days),
+// which for a duration that's meant to keep growing is the same silent
+// "looks fresh again" failure elapsedWithin() exists to prevent -- this
+// pins at UINT32_MAX instead of wrapping.
+uint32_t saturatingAddMs(uint32_t a, uint32_t b);
