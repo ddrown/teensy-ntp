@@ -62,6 +62,19 @@ Notes from a code review, roughly ordered by priority.
       wraparound-safe "elapsed(now, then)" helper with an explicit max-valid-window, used
       everywhere a duration is computed, rather than continuing to sprinkle ad hoc unsigned
       subtraction around — otherwise the watchdog fix risks introducing its own wraparound bug.
+      Helper added 2026-07-14: `elapsedWithin(now, then, maxWindow, uint32_t *elapsedOut)`
+      (`Elapsed.h/.cpp`, no state, no Arduino dependency) returns the forward gap from `then` to
+      `now` only if it's within `[0, maxWindow]`, rejecting both an implausibly large gap and the
+      "`then` is actually ahead of `now`" case (which unsigned-wraps to a huge gap rather than a
+      small negative one). Explicitly does *not* solve unbounded-outage detection by itself — a
+      gap of `maxWindow + k*2^32` is indistinguishable from a gap of `maxWindow` from a single
+      `(now, then)` pair; callers tracking an open-ended outage still need to poll more often than
+      `maxWindow` and accumulate elapsed time incrementally rather than taking one subtraction
+      across the whole outage (documented in the header). `test/test-Elapsed.cpp` covers the
+      normal case, the exact-boundary-is-valid case, just-past-boundary rejection, a real wrap
+      (`then` near `UINT32_MAX`, `now` just past `0`), `then` ahead of `now`, and a long-outage
+      gap. Not yet wired into the existing `ppsToGPS` lag check or any holdover polling — next
+      step is using it to drive the D-only/growing-dispersion holdover logic above.
 
 ## Bugs / fragile areas
 

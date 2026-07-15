@@ -7,3 +7,4 @@ test/test-NTPClock
 test/test-ClockPID
 test/test-InputCapture
 test/test-ClockDiscipline
+test/test-Elapsed
