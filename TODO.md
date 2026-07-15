@@ -88,6 +88,16 @@ Notes from a code review, roughly ordered by priority. Completed items have been
       - `NTPServer::recv()`'s `response->leap = NTP_LEAP_NONE` becomes a lookup against the
         compiled table: `NTP_LEAP_61S` once within the current UTC day of a scheduled
         insertion, `NTP_LEAP_NONE` otherwise.
+        Wired in 2026-07-15: `response->leap` now calls `leapSecondPendingToday(reftime,
+        &pendingType)` (`NTPServer.cpp`), mapping `LEAP_DELETE` to `NTP_LEAP_59S` and
+        `LEAP_INSERT` (or no pending entry) to `NTP_LEAP_61S`/`NTP_LEAP_NONE` respectively.
+        `reftime` is already in the right domain for this -- it's set from
+        `r.gpstime`/`gps.GPSnow().ntptime()` (teensy-ntp.ino), the same NTP-seconds-since-1900
+        convention the table is keyed on -- so no conversion was needed. `NTPServer.cpp` has
+        no host-side unit tests (it depends directly on lwIP, per CLAUDE.md), so this couldn't
+        get direct test coverage; `leapSecondPendingToday()` itself is already covered by
+        `test/test-LeapSeconds.cpp`, and the wiring here is a two-line lookup-and-map with no
+        independent logic of its own.
       - Step, not smear: at the moment the leap second occurs, step the local clock
         representation by the extra second rather than spreading the correction over the
         surrounding day. Simpler to implement, and matches what a stratum-1 GPS-disciplined

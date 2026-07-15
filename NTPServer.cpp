@@ -4,6 +4,7 @@
 #include "NTPClock.h"
 #include "NTPServer.h"
 #include "NTPClients.h"
+#include "LeapSeconds.h"
 #include "platform-clock.h"
 
 #define TS_POS_S 1
@@ -53,9 +54,14 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
     response->ident = 0;
     response->leap = NTP_LEAP_UNSYNC;
   } else {
+    LeapSecondType pendingType;
     response->stratum = 1;
     response->ident = htonl(0x50505300); // "PPS"
-    response->leap = NTP_LEAP_NONE; // TODO: no leap second support
+    if (leapSecondPendingToday(reftime, &pendingType)) {
+      response->leap = (pendingType == LEAP_DELETE) ? NTP_LEAP_59S : NTP_LEAP_61S;
+    } else {
+      response->leap = NTP_LEAP_NONE;
+    }
   }
   response->poll = request->poll;
   if(response->poll > 12) {
