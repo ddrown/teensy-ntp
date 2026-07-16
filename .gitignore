@@ -10,3 +10,4 @@ test/test-ClockDiscipline
 test/test-Elapsed
 test/test-ClockHoldover
 test/test-LeapSeconds
+test/test-NTPClients

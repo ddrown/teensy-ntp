@@ -270,6 +270,100 @@ Notes from a code review, roughly ordered by priority. Completed items have been
         2036-02-07 -- unaffected by this fix, since `leapSeconds[]`'s `effectiveNtpTime` values
         are deliberately in the wire-format `ntptime()` domain, not this new internal one.
 
+## Test coverage for NTPServer (open issue)
+
+- [ ] **Extract `NTPServer::recv()`'s lwIP-independent logic into a testable core, rather than
+      mocking lwIP's pbuf/udp_pcb API.** Raised 2026-07-15: `NTPServer.cpp`/`NTPClients.cpp` have
+      no host-side tests (`CLAUDE.md`) and, confirmed today, don't even compile standalone in this
+      environment -- `test/lwip/inet.h`/`test/lwip_t41.h` are near-empty stubs (just enough for
+      files like `NTPClock.cpp` that only need the headers to *exist*, not files that actually
+      touch `ip4_addr_t`/`struct pbuf`/`struct udp_pcb`). That meant the `WireNtpTime`/`TaiNtpTime`
+      wiring through `recv()` (see git history, "add typed WireNtpTime/TaiNtpTime wrappers") could
+      only be checked by hand, not by the compiler -- exactly the file where a domain mixup is
+      most likely and least visible, since it's the one place real wire-format output gets
+      produced. Considered mocking lwIP directly (flesh out the stub headers, maybe with
+      FakeIt-style call verification on `udp_sendto()` the way `ArduinoFake` already mocks
+      `Serial`/`millis()`) -- rejected as the primary approach: lwIP's real pbuf refcounting/udp_pcb
+      semantics are enough surface area that a hand-rolled stub risks quietly diverging from real
+      behavior, which is worse than no test (a mock that lies gives false confidence in exactly the
+      kind of subtle correctness bug this area already has a track record of).
+
+      Walking `recv()` (NTPServer.cpp) line by line, most of the *interesting* logic doesn't
+      actually touch lwIP at all -- it just happens to be written inline alongside the parts that
+      do:
+      - Request validation (`request_buf->len < sizeof(ntp_packet)`, `request->version`,
+        `request->mode`) -- pure once the three input values are extracted from the pbuf.
+      - Stratum/ident/leap selection (`reftime`/`dispersion` -> stratum 1 vs 16, `NTP_LEAP_UNSYNC`
+        vs the `leapSecondPendingToday()` lookup) -- pure function of `(TaiNtpTime reftime,
+        uint32_t dispersion)`. This is the single most valuable piece to get under test: it's the
+        leap-indicator logic from the "Leap second handling" work above, and the exact kind of
+        thing a hand-review can miss.
+      - Poll clamping (`min(request->poll, 12)`) -- trivial, but free to include.
+      - The RX/TX timestamp computation (`Ntp64` pack + latency correction + `taiToWireNtp()`) --
+        already `pbuf`/`udp_pcb`-free today (operates on `TaiNtpTime`/`Ntp64` only), just needs
+        pulling out of `recv()`'s body; doing so also removes the near-duplicate RX/TX logic
+        (same three steps, different constants) into one shared helper.
+      - What *can't* be extracted without more work: the interleaved-vs-basic-mode decision
+        depends on `NTPClients::findClient()`, which needs `CLIENT_ADDR_T` (a real `ip4_addr_t`/
+        `ip6_addr_t`) for address matching.
+
+      Proposed shape: a new `NTPResponseBuilder.h/.cpp` (or similar; mirrors the
+      `ClockDiscipline`/`ClockHoldover` extraction pattern already used this session) exposing
+      small, separately-testable pure functions/methods for the pieces above, taking and returning
+      plain values (`TaiNtpTime`/`WireNtpTime`/`uint32_t`/a small result struct) -- no `pbuf`,
+      `udp_pcb`, or `ip_addr_t` in any of their signatures. `NTPServer::recv()` shrinks to: extract
+      fields from the pbuf, call the builder, look up the interleaved client, write the result
+      into the response packet, call `udp_sendto()`. That remaining shell is simple enough
+      (straight-line field copying) that it's much lower-risk to leave hand-reviewed than the
+      logic being pulled out of it.
+
+      Separate, smaller, complementary opportunity noticed along the way, **done 2026-07-15**:
+      `NTPClients.cpp` (`addRx`/`addTx`/`findClient`/`expireClients`) never touches
+      `pbuf`/`udp_pcb`/`enet_*` at all -- its only lwIP dependency is
+      `CLIENT_ADDR_T`/`CLIENT_ADDR_CMP`/`CLIENT_ADDR_SET` (i.e. `ip4_addr_t` and address
+      compare/copy). Fleshed out *just* that slice of the stub headers instead of the full
+      udp/pbuf machinery: `test/lwip/inet.h` (previously empty) now defines a real `ip4_addr_t`
+      (`{ uint32_t addr; }`) plus `ip4_addr_set`/`ip4_addr_cmp` as `static inline` functions
+      mirroring real lwIP's semantics (value copy with NULL-source-means-zero; equality compare) --
+      `LWIP_IPV6` is never defined in this test build (it comes from the real `lwipopts.h`, part of
+      the external `teensy41_ethernet` library this repo doesn't vendor), so `NTPClients.h`'s
+      `#if LWIP_IPV6` always takes the ip4 branch here, same as every other file already built
+      without that library. `NTPClients.cpp` now compiles and links standalone in this environment
+      for the first time. New `test/test-NTPClients.cpp` (11 tests): `findClient()`'s three-way
+      match (address, rx seconds, rx fractional) including each independently-wrong case;
+      `addRx()` reusing an existing address's slot rather than creating a duplicate; `addTx()`
+      requiring a prior matching `addRx()` and matching port; and `expireClients()`, including a
+      **regression test that specifically exercises the TAI/wire domain bug fixed alongside the
+      typed wrappers** -- a client refreshed only 6 seconds ago (in the correct, converted domain)
+      that would have been wrongly expired as ~4127s old if `localClock`'s TAI-like "now" were
+      compared against the wire-domain `rx_s` without the `taiToWireNtp()` conversion. Needed one
+      other fix along the way: `NTPClients::expireClients()` reaches for the real global
+      `localClock` directly rather than taking it by constructor injection like
+      `ClockDiscipline`/`ClockHoldover`/`NTPServer` do -- unlike those, `NTPClients`'s global
+      instance (`clientList`) is defined only in `teensy-ntp.ino`, not in `NTPClients.cpp` itself
+      (`ClockPID` is the one existing singleton that *does* self-define in its own `.cpp`), so the
+      test binary defines its own `NTPClock localClock;` to satisfy the link, the same role
+      `teensy-ntp.ino` normally plays. Left as-is rather than refactoring `expireClients()` to take
+      DI -- out of scope for "add test coverage," and would touch the one already-untestable-without-help
+      call site's public signature for no test-writing benefit beyond what defining the global
+      already gets for free.
+      Makefile rule: `test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o
+      $(LIBS)`. All 80 host-side tests (11 new + 69 existing) pass.
+      Still open, and now the main remaining piece of this section: the `recv()` extraction below
+      (`NTPServer.cpp` itself still can't compile standalone -- confirmed unchanged from before
+      this sub-item, since `struct pbuf`/`struct udp_pcb` need the full udp/pbuf stub work, not
+      just the address-type slice done here).
+
+      Testing plan for the extracted builder, once it exists: unsynced (`reftime == 0`) ->
+      stratum 16/`NTP_LEAP_UNSYNC`; dispersion over the `0x10000` threshold -> same fallback, even
+      with a valid `reftime`; synced with no leap second pending -> stratum 1/`NTP_LEAP_NONE`;
+      synced with a pending `LEAP_INSERT` -> `NTP_LEAP_61S`; synced with a pending `LEAP_DELETE` ->
+      `NTP_LEAP_59S` (never happened for real, but the code path exists and should be exercised);
+      poll clamping at/under/over 12; RX/TX wire-domain conversion for a normal instant and for one
+      that lands on/adjacent to a real leap-second boundary (reusing the same 2016-12-31 case
+      `test-DateTime.cpp`/`test-LeapSeconds.cpp` already use), since that boundary is exactly what
+      motivated this whole area of work.
+
 ## Design / future work
 
 - [ ] `NTPClients` (NTPClients.cpp) does an O(n) linear scan over all 100 client slots on every
