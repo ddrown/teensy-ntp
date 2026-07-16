@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "NtpTimestamp.h"
 
 #ifndef NTPPID_KP
 #define NTPPID_KP 0.1
@@ -29,7 +30,7 @@ extern "C" {
 class ClockPID_c {
   public:
     ClockPID_c() { count = 0; }
-    float add_sample(uint32_t timestamp, uint32_t realSecond, int64_t corrected_offset);
+    float add_sample(uint32_t timestamp, TaiNtpTime realSecond, int64_t corrected_offset);
 
     float p() { return last_p; };
     float i() { return last_i; };

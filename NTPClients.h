@@ -1,5 +1,6 @@
 #pragma once
 #include "lwip/inet.h"
+#include "NtpTimestamp.h"
 
 #if LWIP_IPV6
 #define CLIENT_ADDR_T ip6_addr_t
@@ -16,9 +17,9 @@ extern const CLIENT_ADDR_T zero_addr;
 struct client {
   CLIENT_ADDR_T addr;
   uint16_t lastPort;
-  uint32_t rx_s;
+  WireNtpTime rx_s;
   uint32_t rx_subs;
-  uint32_t tx_s;
+  WireNtpTime tx_s;
   uint32_t tx_subs;
 };
 
@@ -28,9 +29,9 @@ struct client {
 class NTPClients {
   public:
     NTPClients();
-    void addRx(CLIENT_ADDR_T *addr, uint16_t port, uint32_t rx_s, uint32_t rx_subs);
-    void addTx(CLIENT_ADDR_T *addr, uint16_t port, uint32_t tx_s, uint32_t tx_subs);
-    struct client *findClient(CLIENT_ADDR_T *addr, uint32_t ts, uint32_t ts_subs);
+    void addRx(CLIENT_ADDR_T *addr, uint16_t port, WireNtpTime rx_s, uint32_t rx_subs);
+    void addTx(CLIENT_ADDR_T *addr, uint16_t port, WireNtpTime tx_s, uint32_t tx_subs);
+    struct client *findClient(CLIENT_ADDR_T *addr, WireNtpTime ts, uint32_t ts_subs);
     void expireClients();
 
   private:

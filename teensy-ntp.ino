@@ -2,6 +2,7 @@
 #include "lwip/inet.h"
 #include "lwip/dhcp.h"
 #include "InputCapture.h"
+#include "NtpTimestamp.h"
 #include "DateTime.h"
 #include "GPS.h"
 #include "NTPClock.h"
@@ -23,7 +24,7 @@ NTPClock localClock;
 NTPClients clientList;
 InputCapture pps;
 elapsedMillis msec, epoll_msec;
-uint32_t compileTime;
+TaiNtpTime compileTime;
 ClockDiscipline discipline(&localClock, &ClockPID);
 ClockHoldover holdover(&localClock, &ClockPID);
 NTPServer server(&localClock);
@@ -99,7 +100,7 @@ void setup() {
   // this needs to happen after enet_init, so the 1588 clock is running
   localClock.setTime(COUNTERFUNC(), compileTime);
   // allow for compile timezone to be 14 hours ahead
-  compileTime -= 14*60*60;
+  compileTime = TaiNtpTime(compileTime.v - 14*60*60);
 
   webserver.begin();
   webcontent.begin();
@@ -111,7 +112,7 @@ void setup() {
   epoll_msec = 0;
 }
 
-void updateTime(uint32_t gpstime) {
+void updateTime(TaiNtpTime gpstime) {
   if(gps.ppsMillis() == 0) {
     return;
   }
@@ -132,7 +133,7 @@ void updateTime(uint32_t gpstime) {
     Serial.print(" ");
     Serial.print(gps.ppsMillis());
     Serial.print(" ");
-    Serial.println(gpstime);
+    Serial.println(gpstime.v);
     return;
   }
 
@@ -142,7 +143,7 @@ void updateTime(uint32_t gpstime) {
     Serial.print("S "); // clock set message
     Serial.print(r.pps);
     Serial.print(" ");
-    Serial.println(r.gpstime);
+    Serial.println(r.gpstime.v);
   } else if(r.updated) {
     holdover.noteDispersion(r.dispersion);
     server.setDispersion(r.dispersion);
@@ -160,7 +161,7 @@ void updateTime(uint32_t gpstime) {
     Serial.print(" ");
     Serial.print(localClock.getPpb());
     Serial.print(" ");
-    Serial.println(r.gpstime);
+    Serial.println(r.gpstime.v);
   }
 }
 
@@ -173,7 +174,8 @@ static void slower_poll() {
   }
 
   if(msec >= 1000) {
-    uint32_t s, s_fb;
+    TaiNtpTime s;
+    uint32_t s_fb;
     // update the local clock's cycle count
     localClock.getTime(COUNTERFUNC(),&s,&s_fb);
 
@@ -193,10 +195,10 @@ static void slower_poll() {
 static void gps_serial_poll() {
   if(GPS_SERIAL.available()) {
     if(gps.decode()) {
-      uint32_t gpstime = gps.GPSnow().ntptime();
-      if(gpstime < compileTime) {
+      TaiNtpTime gpstime = gps.GPSnow().ntptime();
+      if(gpstime.v < compileTime.v) {
         Serial.print("B "); // gps clock bad message (for example, on startup before GPS almanac)
-        Serial.println(gpstime);
+        Serial.println(gpstime.v);
       } else {
         updateTime(gpstime);
       }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "NtpTimestamp.h"
 
 // Compiled-in table of known leap seconds, the same idea as IERS/NIST's
 // published `leap-seconds.list` (and in the same format: an NTP timestamp
@@ -24,8 +25,8 @@ enum LeapSecondType : uint8_t {
 };
 
 struct LeapSecondEntry {
-  uint32_t effectiveNtpTime; // NTP seconds (since 1900) the new offset takes effect
-  int8_t cumulativeOffset;   // TAI-UTC offset in seconds, effective from here onward
+  WireNtpTime effectiveNtpTime; // NTP seconds (since 1900) the new offset takes effect
+  int8_t cumulativeOffset;      // TAI-UTC offset in seconds, effective from here onward
   LeapSecondType type;
 };
 
@@ -43,13 +44,13 @@ extern const uint8_t leapSecondsCount;
 // leap-seconds.list convention). Use this for anything that has to match
 // what's actually sent over the wire (see leapSecondOffsetAtTai() below for
 // the reverse-domain counterpart).
-int8_t leapSecondOffsetAt(uint32_t ntpTime);
+int8_t leapSecondOffsetAt(WireNtpTime ntpTime);
 
 // True if ntpTime falls within the UTC day a leap second is scheduled to
 // occur -- i.e. the day immediately before some table entry's
 // effectiveNtpTime. If true, *type is set to that entry's type. Same wire
 // NTP domain as leapSecondOffsetAt().
-bool leapSecondPendingToday(uint32_t ntpTime, LeapSecondType *type);
+bool leapSecondPendingToday(WireNtpTime ntpTime, LeapSecondType *type);
 
 // Cumulative TAI-UTC offset (seconds) in effect at taiTime, where taiTime is
 // in the *TAI-like* domain instead: real, leap-second-adjusted seconds since
@@ -68,9 +69,9 @@ bool leapSecondPendingToday(uint32_t ntpTime, LeapSecondType *type);
 // the offset returned is the one in effect *before* that boundary (the
 // correct one to reconstruct 23:59:60 with, as opposed to 00:00:00 the
 // following day, which shares the same wire-format value once converted).
-int8_t leapSecondOffsetAtTai(uint32_t taiTime, bool *isLeapInstant);
+int8_t leapSecondOffsetAtTai(TaiNtpTime taiTime, bool *isLeapInstant);
 
 // Converts a TAI-like timestamp (DateTime::ntptime()'s domain) back to real
 // NTP wire format (UTC-seconds-since-1900) -- the domain the wire protocol,
 // and anything writing an outgoing NTP packet, needs.
-uint32_t taiToWireNtp(uint32_t taiTime);
+WireNtpTime taiToWireNtp(TaiNtpTime taiTime);

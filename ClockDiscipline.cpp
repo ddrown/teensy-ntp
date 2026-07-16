@@ -39,7 +39,7 @@ uint32_t ClockDiscipline::ntp64_to_32(int64_t offset) {
   return offset & 0xffffffff;
 }
 
-DisciplineResult ClockDiscipline::process(uint32_t pps, uint32_t gpstime) {
+DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
   DisciplineResult r = {};
   r.pps = pps;
   r.gpstime = gpstime;

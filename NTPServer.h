@@ -1,5 +1,6 @@
 #pragma once
 #include "NTPClients.h"
+#include "NtpTimestamp.h"
 
 #define NTP_LEAP_NONE   0
 #define NTP_LEAP_61S    1
@@ -47,7 +48,7 @@ class NTPServer {
     void recv(struct pbuf *request_buf, struct pbuf *response_buf, const ip_addr_t *addr, uint16_t port);
     void setup();
     void setDispersion(uint32_t newDispersion);
-    void setReftime(uint32_t newRef);
+    void setReftime(TaiNtpTime newRef);
     void addTxTimestamp(uint32_t ts);
 
   private:
@@ -57,7 +58,7 @@ class NTPServer {
       uint16_t s16[2];
       uint32_t s32;
     } dispersion;
-    uint32_t reftime;
+    TaiNtpTime reftime;
     CLIENT_ADDR_T lastTxAddr;
     uint16_t lastTxPort;
 };

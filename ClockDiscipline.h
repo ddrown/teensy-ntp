@@ -10,7 +10,7 @@ struct DisciplineResult {
   bool clockSet;    // true: this call established the initial clock reference
   bool updated;     // true: a PID sample was committed (median-of-3 resolved)
   uint32_t pps;
-  uint32_t gpstime;
+  TaiNtpTime gpstime;
   int64_t offset;
   float ppb;
   uint32_t dispersion;
@@ -27,7 +27,7 @@ class ClockDiscipline {
     // Feed one GPS-timestamped PPS sample; returns what (if anything) the
     // caller should do with it (report a clock-set message, or push new
     // dispersion/reftime/ppb values out to the server/local clock).
-    DisciplineResult process(uint32_t pps, uint32_t gpstime);
+    DisciplineResult process(uint32_t pps, TaiNtpTime gpstime);
 
   private:
     NTPClock *localClock_;
@@ -37,7 +37,7 @@ class ClockDiscipline {
     struct {
       int64_t offset;
       uint32_t pps;
-      uint32_t gpstime;
+      TaiNtpTime gpstime;
     } samples_[DISCIPLINE_WAIT_COUNT];
 
     static uint8_t median(int64_t one, int64_t two, int64_t three);

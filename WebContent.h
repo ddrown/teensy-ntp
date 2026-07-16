@@ -1,11 +1,13 @@
 #pragma once
 
+#include "NtpTimestamp.h"
+
 class WebContent {
   public:
     void begin();
     const char *jsonState();
-    void setPPSData(uint32_t new_ppsToGPS, uint32_t new_ppsMillis, uint32_t new_gpstime);
-    void setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, double new_pidD, double new_dChiSq, int32_t new_clockPpb, uint32_t new_gpstime);
+    void setPPSData(uint32_t new_ppsToGPS, uint32_t new_ppsMillis, TaiNtpTime new_gpstime);
+    void setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, double new_pidD, double new_dChiSq, int32_t new_clockPpb, TaiNtpTime new_gpstime);
     void setHoldover(bool new_inHoldover, uint32_t new_holdoverDispersion, uint32_t new_holdoverElapsedMs);
 
   private:

@@ -3,15 +3,17 @@
 #pragma once
 
 #include "Arduino.h"
+#include "NtpTimestamp.h"
 
 class DateTime {
  public:
-  DateTime(uint32_t t = 0);
+  // t is TAI-like (see ntptime() below), not raw NTP wire format.
+  explicit DateTime(TaiNtpTime t = TaiNtpTime(0));
   DateTime(uint16_t year, uint16_t month, uint16_t day,
     uint16_t hour = 0, uint16_t minute = 0, uint16_t second = 0);
   DateTime(const char *date, const char *time);
 
-  void time(uint32_t t);
+  void time(TaiNtpTime t);
 
   uint16_t year() const { return 2000 + year_; }
   uint16_t month() const { return month_; }
@@ -26,7 +28,7 @@ class DateTime {
   // adjusted seconds, monotonic across a leap second insertion/deletion --
   // NOT the raw NTP wire format. Convert via LeapSeconds.h's
   // taiToWireNtp()/leapSecondOffsetAtTai() before putting this on the wire.
-  uint32_t ntptime(void) const;
+  TaiNtpTime ntptime(void) const;
   // 32-bit times as seconds since 1/1/1970, same TAI-like domain as
   // ntptime() above (leap offset applied relative to the NTP/1900 epoch,
   // per LeapSeconds.h, then rebased to 1970).

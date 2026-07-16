@@ -42,14 +42,14 @@ static long time2long(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
 // alias to that value.
 static int8_t leapOffsetFor(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
   uint32_t wireT = time2long(days, h, m, s) + SECONDS_FROM_1900_TO_2000;
-  return (s == 60) ? leapSecondOffsetAt(wireT - 1) : leapSecondOffsetAt(wireT);
+  return (s == 60) ? leapSecondOffsetAt(WireNtpTime(wireT - 1)) : leapSecondOffsetAt(WireNtpTime(wireT));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // DateTime implementation - ignores time zones and DST changes
 //
-// ntptime()/unixtime() (encode) and time()/the uint32_t constructor (decode)
-// work in a TAI-like domain: real, leap-second-adjusted seconds, monotonic
+// ntptime() (encode) and time()/the TaiNtpTime constructor (decode) work in
+// a TAI-like domain: real, leap-second-adjusted seconds, monotonic
 // with no aliasing across a leap second insertion/deletion -- NOT the raw
 // NTP/Unix wire format, which is deliberately leap-second-naive (every day
 // is exactly 86400 seconds) and can't represent a leap second as distinct
@@ -60,14 +60,14 @@ static int8_t leapOffsetFor(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
 // handling".
 
 // expects a TAI-like (leap-second-adjusted) timestamp -- see above
-DateTime::DateTime(uint32_t t) {
+DateTime::DateTime(TaiNtpTime t) {
   this->time(t);
 }
 
-void DateTime::time(uint32_t t) {
+void DateTime::time(TaiNtpTime t) {
   bool isLeapInstant;
   int8_t offset = leapSecondOffsetAtTai(t, &isLeapInstant);
-  uint32_t wireT = t - offset;
+  uint32_t wireT = t.v - offset;
   if (isLeapInstant) {
     // decode as the prior day's last regular second, then flag it as the
     // leap second itself below -- wireT here aliases with the following
@@ -171,14 +171,14 @@ DateTime::DateTime(
   second_ = conv2d(time + 6);
 }
 
-uint32_t DateTime::ntptime(void) const {
+TaiNtpTime DateTime::ntptime(void) const {
   uint32_t t;
   uint16_t days = date2days(year_, month_, day_);
   t = time2long(days, hour_, minute_, second_);
   t += SECONDS_FROM_1900_TO_2000;
   t += leapOffsetFor(days, hour_, minute_, second_);
 
-  return t;
+  return TaiNtpTime(t);
 }
 
 uint32_t DateTime::unixtime(void) const {

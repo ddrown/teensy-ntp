@@ -1,12 +1,13 @@
 #include "test.h"
 #include "DateTime.h"
+#include "NtpTimestamp.h"
 
 void test_ntpdate() {
-  DateTime dec2019 = DateTime(3785457371);
+  DateTime dec2019 = DateTime(TaiNtpTime(3785457371));
   TEST_ASSERT_EQUAL(12, dec2019.month());
   TEST_ASSERT_EQUAL(2019, dec2019.year());
 
-  DateTime feb2036 = DateTime(4294944000);
+  DateTime feb2036 = DateTime(TaiNtpTime(4294944000));
   TEST_ASSERT_EQUAL(2, feb2036.month());
   TEST_ASSERT_EQUAL(2036, feb2036.year());
 }
@@ -77,10 +78,10 @@ void test_leap_second_ntptime_is_monotonic_not_aliased() {
   DateTime dec31_leap = DateTime(2016, 12, 31, 23, 59, 60);
   DateTime jan1 = DateTime(2017, 1, 1, 0, 0, 0);
 
-  TEST_ASSERT_EQUAL(dec31_leap.ntptime() + 1, jan1.ntptime());
+  TEST_ASSERT_EQUAL(dec31_leap.ntptime().v + 1, jan1.ntptime().v);
 }
 
-// Round-trip the two instants above back through the uint32_t constructor
+// Round-trip the two instants above back through the TaiNtpTime constructor
 // (decode direction) and confirm each reconstructs the correct calendar
 // fields -- in particular that the leap second decodes back as a literal
 // :60, not as the following day's :00 it aliases with on the wire.

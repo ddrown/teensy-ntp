@@ -36,6 +36,29 @@ Notes from a code review, roughly ordered by priority. Completed items have been
       days or seconds like `millis()`/the 1588 counter, so actually hitting that wraparound would
       require this specific device to run continuously for many decades -- not a realistic risk
       for this deployment. Left untouched by this round; noted for completeness, not urgency.
+      Type safety added 2026-07-15 for the *other* mixed-domain risk in this area -- not
+      wraparound, but the wire-format-vs-TAI-like NTP-seconds confusion introduced when
+      `DateTime::ntptime()` became leap-second-aware (see "Leap second handling" below).
+      `NtpTimestamp.h` adds `WireNtpTime`/`TaiNtpTime` (tagged `uint32_t` wrappers, explicit
+      single-arg constructors, no implicit conversion between them, no arithmetic/comparison
+      operators -- callers do that via the public `.v` field) so passing one domain where the
+      other is expected is now a compile error instead of a silently-wrong number, threaded
+      through `DateTime`/`LeapSeconds`/`NTPClock`/`ClockPID`/`ClockDiscipline`/`NTPServer`/
+      `NTPClients`/`WebContent`. Also added `Ntp64` (`NtpTimestamp.h`), a named replacement for
+      the `union{uint32_t parts[2]; uint64_t whole;}` pattern previously duplicated in
+      `NTPClock.h` and `NTPServer.cpp`'s `recv()`, with `.seconds()`/`.fractional()`/
+      `setSeconds()`/`setFractional()` accessors instead of raw `parts[TS_POS_S]` indexing.
+      This work caught two real bugs along the way (not hypothetical -- both were live in the
+      committed code): `NTPClients::expireClients()` (the very function referenced above)
+      compared a TAI-like `localClock.getTime()` value directly against `WireNtpTime`-domain
+      stored `rx_s` timestamps with no conversion, expiring clients up to ~37s early/late;
+      and `WebContent`'s `gpstime` display value (`index_js.h`'s `(json.gpstime-2208988800)*1000`)
+      was rendering the TAI-like value directly, showing a UTC time ~37s ahead of real GPS time.
+      Both fixed by converting via `taiToWireNtp()` at the point the value is stored/displayed.
+      All 69 host-side tests still pass; `NTPServer.cpp`/`NTPClients.cpp` remain uncompilable
+      standalone in this environment (missing real lwIP headers, confirmed as a pre-existing
+      limitation predating this change, not a regression from it) so those two files' changes
+      couldn't get compiler verification here -- reviewed by hand instead.
 
 ## Leap second handling (open issue)
 

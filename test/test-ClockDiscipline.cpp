@@ -8,7 +8,7 @@
 // state, resolve-every-3rd-call) branch without depending on the PID math.
 static void fillPidFull(ClockPID_c &pid) {
   while (!pid.full()) {
-    pid.add_sample(pid.samples() * 1000, pid.samples(), 0);
+    pid.add_sample(pid.samples() * 1000, TaiNtpTime(pid.samples()), 0);
   }
 }
 
@@ -17,12 +17,12 @@ void test_first_sample_sets_clock() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  DisciplineResult r = d.process(1000, 500000000);
+  DisciplineResult r = d.process(1000, TaiNtpTime(500000000));
 
   TEST_ASSERT_TRUE(r.clockSet);
   TEST_ASSERT_FALSE(r.updated);
   TEST_ASSERT_EQUAL(1000, r.pps);
-  TEST_ASSERT_EQUAL(500000000, r.gpstime);
+  TEST_ASSERT_EQUAL(500000000, r.gpstime.v);
   TEST_ASSERT_EQUAL(1, pid.samples());
 }
 
@@ -34,10 +34,10 @@ void test_bootstrap_resolves_every_call() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 500000000); // clock set, pid.samples() == 1
+  d.process(1000, TaiNtpTime(500000000)); // clock set, pid.samples() == 1
 
   for (int i = 1; i <= 5; i++) {
-    DisciplineResult r = d.process(1000 + i * 1000000, 500000000 + i);
+    DisciplineResult r = d.process(1000 + i * 1000000, TaiNtpTime(500000000 + i));
     TEST_ASSERT_FALSE(r.clockSet);
     TEST_ASSERT_TRUE(r.updated);
   }
@@ -52,15 +52,15 @@ void test_full_pid_buffers_two_then_resolves() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 500000000); // clock set
+  d.process(1000, TaiNtpTime(500000000)); // clock set
   fillPidFull(pid);
   TEST_ASSERT_TRUE(pid.full());
 
-  DisciplineResult r1 = d.process(1000, 500000010);
+  DisciplineResult r1 = d.process(1000, TaiNtpTime(500000010));
   TEST_ASSERT_FALSE(r1.updated);
-  DisciplineResult r2 = d.process(1000, 500000020);
+  DisciplineResult r2 = d.process(1000, TaiNtpTime(500000020));
   TEST_ASSERT_FALSE(r2.updated);
-  DisciplineResult r3 = d.process(1000, 500000030);
+  DisciplineResult r3 = d.process(1000, TaiNtpTime(500000030));
   TEST_ASSERT_TRUE(r3.updated);
 }
 
@@ -72,18 +72,18 @@ void test_full_pid_selects_median_ascending_order() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 1000000000); // clock set: lastMicros_ == 1000, ntpTimestamp_ == 1000000000
+  d.process(1000, TaiNtpTime(1000000000)); // clock set: lastMicros_ == 1000, ntpTimestamp_ == 1000000000
   fillPidFull(pid);
 
   // Reuse pps==1000 every call so getOffset()'s elapsed-time term is zero and
   // the resulting offset is purely proportional to (gpstime - 1000000000);
   // arrival order 10, 30, 20 -> median by value is 20.
-  d.process(1000, 1000000000 + 10);
-  d.process(1000, 1000000000 + 30);
-  DisciplineResult r = d.process(1000, 1000000000 + 20);
+  d.process(1000, TaiNtpTime(1000000000 + 10));
+  d.process(1000, TaiNtpTime(1000000000 + 30));
+  DisciplineResult r = d.process(1000, TaiNtpTime(1000000000 + 20));
 
   TEST_ASSERT_TRUE(r.updated);
-  TEST_ASSERT_EQUAL(1000000000 + 20, r.gpstime);
+  TEST_ASSERT_EQUAL(1000000000 + 20, r.gpstime.v);
   int64_t expectedOffset = 20LL * 4294967296LL;
   TEST_ASSERT_EQUAL(expectedOffset, r.offset);
   TEST_ASSERT_EQUAL((uint32_t)(expectedOffset >> 16), r.dispersion);
@@ -94,16 +94,16 @@ void test_full_pid_selects_median_descending_order() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 1000000000);
+  d.process(1000, TaiNtpTime(1000000000));
   fillPidFull(pid);
 
   // arrival order 30, 10, 20 -> median by value is still 20.
-  d.process(1000, 1000000000 + 30);
-  d.process(1000, 1000000000 + 10);
-  DisciplineResult r = d.process(1000, 1000000000 + 20);
+  d.process(1000, TaiNtpTime(1000000000 + 30));
+  d.process(1000, TaiNtpTime(1000000000 + 10));
+  DisciplineResult r = d.process(1000, TaiNtpTime(1000000000 + 20));
 
   TEST_ASSERT_TRUE(r.updated);
-  TEST_ASSERT_EQUAL(1000000000 + 20, r.gpstime);
+  TEST_ASSERT_EQUAL(1000000000 + 20, r.gpstime.v);
 }
 
 // A resolving call must push its ppb/reftime out to localClock, and its
@@ -114,15 +114,15 @@ void test_resolve_updates_local_clock() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 1000000000);
+  d.process(1000, TaiNtpTime(1000000000));
   fillPidFull(pid);
 
-  d.process(1000, 1000000000 + 5);
-  d.process(1000, 1000000000 + 5);
-  DisciplineResult r = d.process(1000, 1000000000 + 5);
+  d.process(1000, TaiNtpTime(1000000000 + 5));
+  d.process(1000, TaiNtpTime(1000000000 + 5));
+  DisciplineResult r = d.process(1000, TaiNtpTime(1000000000 + 5));
 
   TEST_ASSERT_TRUE(r.updated);
-  TEST_ASSERT_EQUAL(1000000000 + 5, clock.getReftime());
+  TEST_ASSERT_EQUAL(1000000000 + 5, clock.getReftime().v);
   TEST_ASSERT_FLOAT_WITHIN(1e-6, pid.out() * 1000000000.0, r.ppb);
   TEST_ASSERT_EQUAL((int32_t)r.ppb, clock.getPpb());
 }
@@ -135,18 +135,18 @@ void test_buffering_calls_do_not_touch_local_clock() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, 1000000000);
+  d.process(1000, TaiNtpTime(1000000000));
   fillPidFull(pid);
   TEST_ASSERT_EQUAL(0, clock.getPpb());
-  TEST_ASSERT_EQUAL(0, clock.getReftime());
+  TEST_ASSERT_EQUAL(0, clock.getReftime().v);
 
-  d.process(1000, 1000000000 + 5);
+  d.process(1000, TaiNtpTime(1000000000 + 5));
   TEST_ASSERT_EQUAL(0, clock.getPpb());
-  TEST_ASSERT_EQUAL(0, clock.getReftime());
+  TEST_ASSERT_EQUAL(0, clock.getReftime().v);
 
-  d.process(1000, 1000000000 + 5);
+  d.process(1000, TaiNtpTime(1000000000 + 5));
   TEST_ASSERT_EQUAL(0, clock.getPpb());
-  TEST_ASSERT_EQUAL(0, clock.getReftime());
+  TEST_ASSERT_EQUAL(0, clock.getReftime().v);
 }
 
 int main(int argc, char **argv) {

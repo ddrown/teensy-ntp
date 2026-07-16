@@ -142,14 +142,14 @@ void ClockPID_c::make_room() {
   count--;
 }
 
-float ClockPID_c::add_sample(uint32_t timestamp, uint32_t realSecond, int64_t corrected_offset) {
+float ClockPID_c::add_sample(uint32_t timestamp, TaiNtpTime realSecond, int64_t corrected_offset) {
   last_p = corrected_offset / 4294967296.0;
- 
+
   if(count == NTPPID_MAX_COUNT) {
     make_room();
   }
   timestamps[count] = timestamp;
-  realSeconds[count] = realSecond;
+  realSeconds[count] = realSecond.v;
   corrected_offsets[count] = corrected_offset;
   count++;
 

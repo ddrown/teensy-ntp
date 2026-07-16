@@ -3,21 +3,21 @@
 #include "platform-clock.h"
 #include "lwip_t41.h"
 
-void NTPClock::setTime(uint32_t micros, uint32_t ntpTimestamp) {
+void NTPClock::setTime(uint32_t micros, TaiNtpTime ntpTimestamp) {
   timeset_ = 1;
   lastMicros_ = micros;
-  ntpTimestamp_.units[NTPCLOCK_SECONDS] = ntpTimestamp;
-  ntpTimestamp_.units[NTPCLOCK_FRACTIONAL] = 0;
+  ntpTimestamp_.setSeconds(ntpTimestamp.v);
+  ntpTimestamp_.setFractional(0);
 }
 
-uint8_t NTPClock::getTime(uint32_t *ntpTimestamp, uint32_t *ntpFractional) {
+uint8_t NTPClock::getTime(TaiNtpTime *ntpTimestamp, uint32_t *ntpFractional) {
   uint32_t now = COUNTERFUNC();
 
   return getTime(now, ntpTimestamp, ntpFractional);
 }
 
 // takes around 28us on an esp8266 80MHz
-uint8_t NTPClock::getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFractional) {
+uint8_t NTPClock::getTime(uint32_t now, TaiNtpTime *ntpTimestamp, uint32_t *ntpFractional) {
   if (!timeset_)
     return 0;
 
@@ -30,22 +30,23 @@ uint8_t NTPClock::getTime(uint32_t now, uint32_t *ntpTimestamp, uint32_t *ntpFra
     ntpTimestamp_.whole = temp_.whole;
   }
   if(ntpTimestamp != NULL)
-    *ntpTimestamp = temp_.units[NTPCLOCK_SECONDS];
+    *ntpTimestamp = TaiNtpTime(temp_.seconds());
   if(ntpFractional != NULL)
-    *ntpFractional = temp_.units[NTPCLOCK_FRACTIONAL];
+    *ntpFractional = temp_.fractional();
 
   return 1;
 }
 
 // returns + for local slower, - for local faster
 // takes around 33us on an esp8266 80MHz
-int64_t NTPClock::getOffset(uint32_t now, uint32_t ntpTimestamp, uint32_t ntpFractional) {
-  uint32_t localS, localFS;
+int64_t NTPClock::getOffset(uint32_t now, TaiNtpTime ntpTimestamp, uint32_t ntpFractional) {
+  TaiNtpTime localS;
+  uint32_t localFS;
   if (getTime(now, &localS, &localFS) != 1) {
     return 0;
   }
 
-  int32_t diffS = ntpTimestamp - localS; // assumption: clocks are within 2^31s
+  int32_t diffS = ntpTimestamp.v - localS.v; // assumption: clocks are within 2^31s
   int64_t diffFS = (int64_t)ntpFractional - localFS;
   diffFS += diffS * 4294967296LL;
 

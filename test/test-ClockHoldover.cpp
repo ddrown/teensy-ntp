@@ -43,7 +43,7 @@ void test_enters_holdover_and_drives_d_only_ppb() {
   // test_addsample, which documents d() converging to ~0.000005 by the
   // 3rd sample).
   for (int i = 0; i < 3; i++) {
-    pid.add_sample(999995 * i, i, (int64_t)(21474.836480 * i));
+    pid.add_sample(999995 * i, TaiNtpTime(i), (int64_t)(21474.836480 * i));
   }
   int32_t dOnlyPpb = (int32_t)(pid.d_out() * 1000000000.0);
   int32_t fullPidPpb = (int32_t)(pid.out() * 1000000000.0);
