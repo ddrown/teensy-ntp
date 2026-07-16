@@ -63,3 +63,27 @@ bool leapSecondPendingToday(uint32_t ntpTime, LeapSecondType *type) {
   }
   return false;
 }
+
+int8_t leapSecondOffsetAtTai(uint32_t taiTime, bool *isLeapInstant) {
+  int matchIndex = -1;
+  for (int i = leapSecondsCount - 1; i >= 0; i--) {
+    uint32_t taiBoundary = leapSeconds[i].effectiveNtpTime + leapSeconds[i].cumulativeOffset;
+    if (taiBoundary <= taiTime) {
+      matchIndex = i;
+      break;
+    }
+  }
+  int8_t offset = (matchIndex >= 0) ? leapSeconds[matchIndex].cumulativeOffset : 0;
+  int nextIndex = matchIndex + 1;
+  if (isLeapInstant) {
+    *isLeapInstant = (nextIndex < leapSecondsCount) &&
+      (leapSeconds[nextIndex].effectiveNtpTime + (uint32_t)leapSeconds[nextIndex].cumulativeOffset == taiTime + 1);
+  }
+  return offset;
+}
+
+uint32_t taiToWireNtp(uint32_t taiTime) {
+  bool isLeapInstant;
+  int8_t offset = leapSecondOffsetAtTai(taiTime, &isLeapInstant);
+  return taiTime - offset;
+}

@@ -219,7 +219,9 @@ void test_decode() {
   }
 
   DateTime decoded = gps.GPSnow();
-  TEST_ASSERT_EQUAL(1576552619, decoded.unixtime());
+  // +37: unixtime() is TAI-like (leap-second-adjusted, see DateTime.h) --
+  // the cumulative offset in effect since 2017-01-01 is 37s.
+  TEST_ASSERT_EQUAL(1576552619 + 37, decoded.unixtime());
 
   pps.newCapture(2);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
@@ -233,7 +235,7 @@ void test_decode() {
   }
 
   decoded = gps.GPSnow();
-  TEST_ASSERT_EQUAL(1576552620, decoded.unixtime());
+  TEST_ASSERT_EQUAL(1576552620 + 37, decoded.unixtime());
 
   pps.newCapture(3);
   When(Method(ArduinoFake(), millis)).Return(MOCK_MILLIS);
@@ -247,7 +249,7 @@ void test_decode() {
   }
 
   decoded = gps.GPSnow();
-  TEST_ASSERT_EQUAL(1576552620, decoded.unixtime());
+  TEST_ASSERT_EQUAL(1576552620 + 37, decoded.unixtime());
   TEST_ASSERT_EQUAL(MOCK_MILLIS, gps.capturedAt());
 }
 

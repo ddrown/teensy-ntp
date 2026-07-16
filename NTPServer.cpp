@@ -46,6 +46,11 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
     return; // not a client request
   }
 
+  // localClock_/reftime are TAI-like (leap-second-adjusted, see DateTime.h)
+  // -- convert back to real NTP wire format before anything below touches
+  // the wire or a client-comparable timestamp.
+  uint32_t wireReftime = taiToWireNtp(reftime);
+
   response->mode = NTP_MODE_SERVER;
   response->version = NTP_VERS_4;
   if(reftime == 0 || dispersion.s32 > 0x10000) {
@@ -57,7 +62,7 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
     LeapSecondType pendingType;
     response->stratum = 1;
     response->ident = htonl(0x50505300); // "PPS"
-    if (leapSecondPendingToday(reftime, &pendingType)) {
+    if (leapSecondPendingToday(wireReftime, &pendingType)) {
       response->leap = (pendingType == LEAP_DELETE) ? NTP_LEAP_59S : NTP_LEAP_61S;
     } else {
       response->leap = NTP_LEAP_NONE;
@@ -72,11 +77,12 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   response->root_delay_fb = 0;
   response->dispersion = htons(dispersion.s16[TS_POS_S]);
   response->dispersion_fb = htons(dispersion.s16[TS_POS_SUBS]);
-  response->ref_time = htonl(reftime);
+  response->ref_time = htonl(wireReftime);
   response->ref_time_fb = 0;
 
   localClock_->getTime(request_buf->timestamp, &RXtimestamp.parts[TS_POS_S], &RXtimestamp.parts[TS_POS_SUBS]);
   RXtimestamp.whole += RX_TRAILER - RX_PHY;
+  RXtimestamp.parts[TS_POS_S] = taiToWireNtp(RXtimestamp.parts[TS_POS_S]);
 
   response->recv_time = htonl(RXtimestamp.parts[TS_POS_S]);
   response->recv_time_fb = htonl(RXtimestamp.parts[TS_POS_SUBS]);
@@ -118,6 +124,7 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
 
     localClock_->getTime(&TXtimestamp.parts[TS_POS_S], &TXtimestamp.parts[TS_POS_SUBS]);
     TXtimestamp.whole += TX_DELAY + TX_PHY;
+    TXtimestamp.parts[TS_POS_S] = taiToWireNtp(TXtimestamp.parts[TS_POS_S]);
 
     response->trans_time = htonl(TXtimestamp.parts[TS_POS_S]);
     response->trans_time_fb = htonl(TXtimestamp.parts[TS_POS_SUBS]);
@@ -163,7 +170,10 @@ void NTPServer::addTxTimestamp(uint32_t ts) {
   uint32_t sec, subsec;
   if (!CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {
     localClock_->getTime(ts, &sec, &subsec);
-    clientList.addTx(&lastTxAddr, lastTxPort, sec, subsec);
+    // Stored for later comparison against a client-echoed org_time, which
+    // will be real wire format (whatever we actually sent) -- convert from
+    // localClock_'s TAI-like domain now, not at comparison time.
+    clientList.addTx(&lastTxAddr, lastTxPort, taiToWireNtp(sec), subsec);
     CLIENT_ADDR_SET(&lastTxAddr, &zero_addr);
   }
 }

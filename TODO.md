@@ -134,6 +134,41 @@ Notes from a code review, roughly ordered by priority. Completed items have been
         confirming against how the specific GPS module in use actually behaves during the
         leap-second minute (some receivers emit a valid `:60`, others skip straight to `:00`
         or repeat `:59`) — the fix above assumes a receiver that does emit `:60`.
+        Implemented 2026-07-15: `DateTime::ntptime()`/`unixtime()` (encode) now add
+        `LeapSeconds`'s cumulative offset via a new `leapOffsetFor()` helper (`DateTime.cpp`),
+        looked up in the wire-format domain via `leapSecondOffsetAt()` -- using the *prior*
+        offset for a literal `second_==60` so it doesn't pick up the boundary's new offset a
+        second early. `DateTime::time(uint32_t t)` (decode, the `DateTime(uint32_t)`
+        constructor) is the mirror image: added `LeapSeconds.h`'s new
+        `leapSecondOffsetAtTai(taiTime, &isLeapInstant)`, a reverse-domain lookup that scans
+        the same table using each entry's *TAI-domain* boundary (`effectiveNtpTime +
+        cumulativeOffset`, exact, not an approximation) so it can subtract the right offset
+        and detect the literal leap-second instant precisely, decoding it back to `second_ ==
+        60` instead of aliasing into the next day. `DateTime(uint32_t)` was unused anywhere in
+        production code before this (only tests exercised it), so the domain-contract change
+        (raw wire timestamp -> TAI-like) doesn't affect any existing call site.
+        `taiToWireNtp(taiTime)` (also new, `LeapSeconds.h/.cpp`) wraps the reverse lookup for
+        callers that just need the wire-format value back, not the leap-instant flag --
+        `NTPServer::recv()` uses it for every timestamp it writes onto the wire or compares
+        against a client-echoed value (`ref_time`, `recv_time`, `trans_time`, and the
+        `clientList` interleaved-mode bookkeeping in `addTxTimestamp()`/`addRx()`), since
+        `localClock_`/`reftime` are now TAI-like too (`ClockPID`/`ClockDiscipline`/`NTPClock`
+        needed no code changes, per the design above -- they inherited the TAI-like domain
+        automatically just by being fed `ntptime()`'s new output, and stayed correct because
+        their math is difference-based). This was the one part of this fix with real blast
+        radius: every served packet's timestamp needed the reverse conversion, not just ones
+        near a leap second, since `NTPClock`'s internal anchor itself is now TAI-like. Test
+        coverage: `test/test-DateTime.cpp` covers the encode/decode round trip through the
+        2016-12-31 leap second (`test_leap_second_ntptime_is_monotonic_not_aliased`,
+        `test_leap_second_ntptime_roundtrips_through_decode`); `test/test-LeapSeconds.cpp`
+        covers `leapSecondOffsetAtTai()`/`taiToWireNtp()` directly, including that the leap
+        instant and the following day's `:00` still collide on the *wire* (expected -- that's
+        the wire format's own inherent limitation, not something this conversion should hide).
+        `NTPServer.cpp` itself has no host-side tests (lwIP dependency, per CLAUDE.md), so the
+        packet-assembly wiring couldn't get direct coverage. Still open: confirming against
+        real GPS hardware whether it actually emits a literal `:60` during a leap second, per
+        the note above -- unconfirmed either way, this fix is inert (offset is 0) for any date
+        before the next announced leap second.
 
 ## NTP timestamp era rollover (Y2036) (open issue)
 

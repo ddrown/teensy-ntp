@@ -28,13 +28,15 @@ void test_numberdate() {
   TEST_ASSERT_EQUAL(12, dec2019.month());
   TEST_ASSERT_EQUAL(26, dec2019.day());
   TEST_ASSERT_EQUAL(2019, dec2019.year());
-  TEST_ASSERT_EQUAL(1577363696, dec2019.unixtime());
+  // +37: unixtime() is TAI-like (leap-second-adjusted, see DateTime.h) --
+  // the cumulative offset in effect since 2017-01-01 is 37s.
+  TEST_ASSERT_EQUAL(1577363696 + 37, dec2019.unixtime());
 
   DateTime feb2036 = DateTime(2036, 2, 2, 0, 0, 0);
   TEST_ASSERT_EQUAL(2, feb2036.month());
   TEST_ASSERT_EQUAL(2, feb2036.day());
   TEST_ASSERT_EQUAL(2036, feb2036.year());
-  TEST_ASSERT_EQUAL(2085523200, feb2036.unixtime());
+  TEST_ASSERT_EQUAL(2085523200 + 37, feb2036.unixtime());
 }
 
 void test_century_not_leap() {
@@ -65,24 +67,42 @@ void test_second_60_does_not_corrupt_fields() {
   TEST_ASSERT_EQUAL(60, leap.second());
 }
 
-// Known limitation, not yet fixed: DateTime::ntptime() ignores leap seconds
-// entirely (time2long() is a plain linear day*86400+h*3600+m*60+s sum), so
-// a reported ":60" collides with the following day's ":00" -- both compute
-// to the exact same NTP-seconds value, even though they're two distinct PPS
-// pulses a full second apart. Left in ClockDiscipline's median-of-3/PID
-// window, that reads as zero elapsed real-time for one PPS interval's worth
-// of hardware-counter ticks and corrupts the drift-rate regression for as
-// long as the sample stays in ClockPID's 16-deep window.
-//
-// See TODO.md, "Leap second handling": the planned fix makes
-// ntptime()/unixtime() leap-second-aware (monotonic) via a compiled
-// leap-second table. When that lands, this assertion should flip to
-// dec31_leap.ntptime() + 1 == jan1.ntptime() instead.
-void test_leap_second_ntptime_collides_with_next_day() {
+// Fixed via LeapSeconds.h: ntptime()/unixtime() are now TAI-like (see
+// DateTime.h) -- a reported ":60" no longer collides with the following
+// day's ":00". Left uncorrected, that aliasing read as zero elapsed
+// real-time for one PPS interval's worth of hardware-counter ticks in
+// ClockDiscipline's median-of-3/PID window, corrupting the drift-rate
+// regression for as long as the sample stayed in ClockPID's 16-deep window.
+void test_leap_second_ntptime_is_monotonic_not_aliased() {
   DateTime dec31_leap = DateTime(2016, 12, 31, 23, 59, 60);
   DateTime jan1 = DateTime(2017, 1, 1, 0, 0, 0);
 
-  TEST_ASSERT_EQUAL(dec31_leap.ntptime(), jan1.ntptime());
+  TEST_ASSERT_EQUAL(dec31_leap.ntptime() + 1, jan1.ntptime());
+}
+
+// Round-trip the two instants above back through the uint32_t constructor
+// (decode direction) and confirm each reconstructs the correct calendar
+// fields -- in particular that the leap second decodes back as a literal
+// :60, not as the following day's :00 it aliases with on the wire.
+void test_leap_second_ntptime_roundtrips_through_decode() {
+  DateTime dec31_leap = DateTime(2016, 12, 31, 23, 59, 60);
+  DateTime jan1 = DateTime(2017, 1, 1, 0, 0, 0);
+
+  DateTime decoded_leap = DateTime(dec31_leap.ntptime());
+  TEST_ASSERT_EQUAL(2016, decoded_leap.year());
+  TEST_ASSERT_EQUAL(12, decoded_leap.month());
+  TEST_ASSERT_EQUAL(31, decoded_leap.day());
+  TEST_ASSERT_EQUAL(23, decoded_leap.hour());
+  TEST_ASSERT_EQUAL(59, decoded_leap.minute());
+  TEST_ASSERT_EQUAL(60, decoded_leap.second());
+
+  DateTime decoded_jan1 = DateTime(jan1.ntptime());
+  TEST_ASSERT_EQUAL(2017, decoded_jan1.year());
+  TEST_ASSERT_EQUAL(1, decoded_jan1.month());
+  TEST_ASSERT_EQUAL(1, decoded_jan1.day());
+  TEST_ASSERT_EQUAL(0, decoded_jan1.hour());
+  TEST_ASSERT_EQUAL(0, decoded_jan1.minute());
+  TEST_ASSERT_EQUAL(0, decoded_jan1.second());
 }
 
 int main() {
@@ -92,6 +112,7 @@ int main() {
   RUN_TEST(test_numberdate);
   RUN_TEST(test_century_not_leap);
   RUN_TEST(test_second_60_does_not_corrupt_fields);
-  RUN_TEST(test_leap_second_ntptime_collides_with_next_day);
+  RUN_TEST(test_leap_second_ntptime_is_monotonic_not_aliased);
+  RUN_TEST(test_leap_second_ntptime_roundtrips_through_decode);
   return UNITY_END();
 }

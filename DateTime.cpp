@@ -1,5 +1,6 @@
 // originally from https://raw.githubusercontent.com/DennisSc/PPS-ntp-server/master/src/DateTime.cpp
 #include "DateTime.h"
+#include "LeapSeconds.h"
 
 #define SECONDS_PER_DAY 86400L
 #define SECONDS_FROM_1900_TO_2000 3155673600
@@ -32,25 +33,57 @@ static long time2long(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
   return ((days * 24L + h) * 60 + m) * 60 + s;
 }
 
+// Cumulative leap-second offset (see LeapSeconds.h) for the wire-format NTP
+// timestamp this calendar moment maps to under plain linear day/time
+// arithmetic. A literal ":60" second (a real leap-second insertion, if the
+// GPS receiver reports one) computes to the same linear value as the
+// following day's ":00" -- use the offset in effect *before* that boundary
+// for it, since it's chronologically the earlier of the two instants that
+// alias to that value.
+static int8_t leapOffsetFor(uint16_t days, uint16_t h, uint16_t m, uint16_t s) {
+  uint32_t wireT = time2long(days, h, m, s) + SECONDS_FROM_1900_TO_2000;
+  return (s == 60) ? leapSecondOffsetAt(wireT - 1) : leapSecondOffsetAt(wireT);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // DateTime implementation - ignores time zones and DST changes
-// NOTE: also ignores leap seconds, see http://en.wikipedia.org/wiki/Leap_second
+//
+// ntptime()/unixtime() (encode) and time()/the uint32_t constructor (decode)
+// work in a TAI-like domain: real, leap-second-adjusted seconds, monotonic
+// with no aliasing across a leap second insertion/deletion -- NOT the raw
+// NTP/Unix wire format, which is deliberately leap-second-naive (every day
+// is exactly 86400 seconds) and can't represent a leap second as distinct
+// from the following day's ":00" any other way. Converting to/from real wire
+// format for anything that has to go out on the network (e.g. an outgoing
+// NTP packet) needs LeapSeconds.h's wire-domain helpers -- see
+// leapSecondOffsetAtTai()/taiToWireNtp(). See TODO.md, "Leap second
+// handling".
 
-// expects NTP timestamp
+// expects a TAI-like (leap-second-adjusted) timestamp -- see above
 DateTime::DateTime(uint32_t t) {
   this->time(t);
 }
 
 void DateTime::time(uint32_t t) {
-  // bring to 2000 timestamp from 1900
-  t -= SECONDS_FROM_1900_TO_2000;
+  bool isLeapInstant;
+  int8_t offset = leapSecondOffsetAtTai(t, &isLeapInstant);
+  uint32_t wireT = t - offset;
+  if (isLeapInstant) {
+    // decode as the prior day's last regular second, then flag it as the
+    // leap second itself below -- wireT here aliases with the following
+    // day's ":00" otherwise, same as the encode direction's collision.
+    wireT -= 1;
+  }
 
-  second_ = t % 60;
-  t /= 60;
-  minute_ = t % 60;
-  t /= 60;
-  hour_ = t % 24;
-  uint16_t days = t / 24;
+  // bring to 2000 timestamp from 1900
+  wireT -= SECONDS_FROM_1900_TO_2000;
+
+  second_ = wireT % 60;
+  wireT /= 60;
+  minute_ = wireT % 60;
+  wireT /= 60;
+  hour_ = wireT % 24;
+  uint16_t days = wireT / 24;
   uint16_t leap;
   for (year_ = 0; ; ++year_) {
     leap = (year_ % 4 == 0 && year_ % 100 != 0) || year_ % 400 == 0;
@@ -70,6 +103,10 @@ void DateTime::time(uint32_t t) {
     days -= daysPerMonth;
   }
   day_ = days + 1;
+
+  if (isLeapInstant) {
+    second_ = 60;
+  }
 }
 
 DateTime::DateTime(
@@ -139,6 +176,7 @@ uint32_t DateTime::ntptime(void) const {
   uint16_t days = date2days(year_, month_, day_);
   t = time2long(days, hour_, minute_, second_);
   t += SECONDS_FROM_1900_TO_2000;
+  t += leapOffsetFor(days, hour_, minute_, second_);
 
   return t;
 }
@@ -148,6 +186,7 @@ uint32_t DateTime::unixtime(void) const {
   uint16_t days = date2days(year_, month_, day_);
   t = time2long(days, hour_, minute_, second_);
   t += SECONDS_FROM_1970_TO_2000;
+  t += leapOffsetFor(days, hour_, minute_, second_);
 
   return t;
 }

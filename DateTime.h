@@ -22,9 +22,14 @@ class DateTime {
 
   // 32-bit times as seconds since 1/1/2000
   long secondstime() const;
-  // 32-bit times as seconds since 1/1/1900
+  // 32-bit times as seconds since 1/1/1900, TAI-like: real, leap-second-
+  // adjusted seconds, monotonic across a leap second insertion/deletion --
+  // NOT the raw NTP wire format. Convert via LeapSeconds.h's
+  // taiToWireNtp()/leapSecondOffsetAtTai() before putting this on the wire.
   uint32_t ntptime(void) const;
-  // 32-bit times as seconds since 1/1/1970
+  // 32-bit times as seconds since 1/1/1970, same TAI-like domain as
+  // ntptime() above (leap offset applied relative to the NTP/1900 epoch,
+  // per LeapSeconds.h, then rebased to 1970).
   uint32_t unixtime(void) const;
 
   String toString(void);
