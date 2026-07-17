@@ -5,70 +5,39 @@
 #include "NTPServer.h"
 #include "NTPClients.h"
 #include "LeapSeconds.h"
+#include "NTPResponseFields.h"
 #include "platform-clock.h"
 
 #define TS_POS_S 1
 #define TS_POS_SUBS 0
 
-// the values below are in 2^32 fractional second units
-// adjusting from preamble timestamp to trailer timestamp: 752 bits at 100M
-#define RX_TRAILER 32298
-// estimate of delay between TX software timestamp and udp_sendto sending packet, for non-interleaved clients
-#define TX_DELAY 16492
-// From DP83825I datasheet, page 10
-// "Slave RMII Rising edge XI clock with assertion TX_EN to SSD symbol on MDI (100M)"
-// 105 ns
-#define TX_PHY 451
-// "SSD symbol on MDI to Slave RMII Rising edge of XI clock with assertion of CRS_DV (100M)"
-// 350ns
-#define RX_PHY 1503
-
 void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const ip_addr_t *addr, uint16_t port) {
-  Ntp64 RXtimestamp, TXtimestamp;
   struct client *interleavedClient;
 
   // drop too small packets
-  if(request_buf->len < sizeof(struct ntp_packet)) {
+  if(!ntpRequestLengthIsValid(request_buf->len)) {
     return;
   }
 
   struct ntp_packet *request = (struct ntp_packet *)request_buf->payload;
   struct ntp_packet *response = (struct ntp_packet *)response_buf->payload;
 
-  if(request->version < 2 || request->version > 4) {
-    return; // unknown version
-  }
-
-  if(request->mode != NTP_MODE_CLIENT) {
-    return; // not a client request
+  if(!ntpRequestVersionAndModeAreValid(request->version, request->mode)) {
+    return; // unknown version, or not a client request
   }
 
   // localClock_/reftime are TAI-like (leap-second-adjusted, see DateTime.h)
   // -- convert back to real NTP wire format before anything below touches
   // the wire or a client-comparable timestamp.
   WireNtpTime wireReftime = taiToWireNtp(reftime);
+  NTPResponseHeader header = selectNTPResponseHeader(reftime, dispersion.s32);
 
   response->mode = NTP_MODE_SERVER;
   response->version = NTP_VERS_4;
-  if(reftime.v == 0 || dispersion.s32 > 0x10000) {
-    // no sync or dispersion over 1s
-    response->stratum = 16;
-    response->ident = 0;
-    response->leap = NTP_LEAP_UNSYNC;
-  } else {
-    LeapSecondType pendingType;
-    response->stratum = 1;
-    response->ident = htonl(0x50505300); // "PPS"
-    if (leapSecondPendingToday(wireReftime, &pendingType)) {
-      response->leap = (pendingType == LEAP_DELETE) ? NTP_LEAP_59S : NTP_LEAP_61S;
-    } else {
-      response->leap = NTP_LEAP_NONE;
-    }
-  }
-  response->poll = request->poll;
-  if(response->poll > 12) {
-    response->poll = 12;
-  }
+  response->stratum = header.stratum;
+  response->ident = htonl(header.ident);
+  response->leap = header.leap;
+  response->poll = clampNTPPoll(request->poll);
   response->precision = -24; // 25MHz = 40ns ~ 2^-24
   response->root_delay = 0;
   response->root_delay_fb = 0;
@@ -80,13 +49,10 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   TaiNtpTime rxTai;
   uint32_t rxFrac;
   localClock_->getTime(request_buf->timestamp, &rxTai, &rxFrac);
-  RXtimestamp.setSeconds(rxTai.v);
-  RXtimestamp.setFractional(rxFrac);
-  RXtimestamp.whole += RX_TRAILER - RX_PHY;
-  WireNtpTime wireRx = taiToWireNtp(TaiNtpTime(RXtimestamp.seconds()));
+  NTPWireTimestamp rxWire = ntpWireTimestampFromTai(rxTai, rxFrac, NTP_RX_LATENCY_CORRECTION);
 
-  response->recv_time = htonl(wireRx.v);
-  response->recv_time_fb = htonl(RXtimestamp.fractional());
+  response->recv_time = htonl(rxWire.seconds.v);
+  response->recv_time_fb = htonl(rxWire.fractional);
 
 #if !LWIP_IPV6
   CLIENT_ADDR_SET(&lastTxAddr, ip_2_ip4(addr));
@@ -109,16 +75,13 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
   }
   if(interleavedClient && interleavedClient->tx_s.v != 0) {
     // interleaved mode -- tx_s is already wire format (stored that way by
-    // addTxTimestamp()), no further conversion needed.
+    // addTxTimestamp()), no further domain conversion needed.
     response->org_time = request->recv_time;
     response->org_time_fb = request->recv_time_fb;
 
-    TXtimestamp.setSeconds(interleavedClient->tx_s.v);
-    TXtimestamp.setFractional(interleavedClient->tx_subs);
-    TXtimestamp.whole += TX_PHY;
-
-    response->trans_time = htonl(TXtimestamp.seconds());
-    response->trans_time_fb = htonl(TXtimestamp.fractional());
+    NTPWireTimestamp txWire = ntpWireTimestampFromWire(interleavedClient->tx_s, interleavedClient->tx_subs, NTP_TX_INTERLEAVED_LATENCY_CORRECTION);
+    response->trans_time = htonl(txWire.seconds.v);
+    response->trans_time_fb = htonl(txWire.fractional);
   } else {
     // basic mode
     response->org_time = request->trans_time;
@@ -127,20 +90,16 @@ void NTPServer::recv(struct pbuf *request_buf, struct pbuf *response_buf, const 
     TaiNtpTime txTai;
     uint32_t txFrac;
     localClock_->getTime(&txTai, &txFrac);
-    TXtimestamp.setSeconds(txTai.v);
-    TXtimestamp.setFractional(txFrac);
-    TXtimestamp.whole += TX_DELAY + TX_PHY;
-    WireNtpTime wireTx = taiToWireNtp(TaiNtpTime(TXtimestamp.seconds()));
-
-    response->trans_time = htonl(wireTx.v);
-    response->trans_time_fb = htonl(TXtimestamp.fractional());
+    NTPWireTimestamp txWire = ntpWireTimestampFromTai(txTai, txFrac, NTP_TX_BASIC_LATENCY_CORRECTION);
+    response->trans_time = htonl(txWire.seconds.v);
+    response->trans_time_fb = htonl(txWire.fractional);
   }
 
   enet_txTimestampNextPacket();
   udp_sendto(ntp_pcb, response_buf, addr, port);
 
   if (!CLIENT_ADDR_CMP(&lastTxAddr, &zero_addr)) {
-    clientList.addRx(&lastTxAddr, lastTxPort, wireRx, RXtimestamp.fractional());
+    clientList.addRx(&lastTxAddr, lastTxPort, rxWire.seconds, rxWire.fractional);
   }
 }
 

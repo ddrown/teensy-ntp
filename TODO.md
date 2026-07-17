@@ -272,7 +272,7 @@ Notes from a code review, roughly ordered by priority. Completed items have been
 
 ## Test coverage for NTPServer (open issue)
 
-- [ ] **Extract `NTPServer::recv()`'s lwIP-independent logic into a testable core, rather than
+- [x] **Extract `NTPServer::recv()`'s lwIP-independent logic into a testable core, rather than
       mocking lwIP's pbuf/udp_pcb API.** Raised 2026-07-15: `NTPServer.cpp`/`NTPClients.cpp` have
       no host-side tests (`CLAUDE.md`) and, confirmed today, don't even compile standalone in this
       environment -- `test/lwip/inet.h`/`test/lwip_t41.h` are near-empty stubs (just enough for
@@ -349,10 +349,43 @@ Notes from a code review, roughly ordered by priority. Completed items have been
       already gets for free.
       Makefile rule: `test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o
       $(LIBS)`. All 80 host-side tests (11 new + 69 existing) pass.
-      Still open, and now the main remaining piece of this section: the `recv()` extraction below
-      (`NTPServer.cpp` itself still can't compile standalone -- confirmed unchanged from before
-      this sub-item, since `struct pbuf`/`struct udp_pcb` need the full udp/pbuf stub work, not
-      just the address-type slice done here).
+
+      **`recv()` extraction done 2026-07-15.** New `NTPResponseFields.h/.cpp`: pure,
+      lwIP-independent functions for every piece identified above --
+      `ntpRequestLengthIsValid()`/`ntpRequestVersionAndModeAreValid()` (split in two, not one
+      combined check, to preserve the original safety-critical order: the length must be
+      confirmed before it's safe to read `request->version`/`request->mode` off the packet at
+      all), `selectNTPResponseHeader()` (the stratum/ident/leap logic -- the piece this was
+      mainly about), `clampNTPPoll()`, and `ntpWireTimestampFromTai()`/`ntpWireTimestampFromWire()`
+      (the RX/TX conversion, now shared instead of duplicated -- two variants because the two
+      real call sites genuinely differ: RX and basic-mode TX start from a TAI-like
+      `NTPClock::getTime()` sample and need the domain conversion, interleaved-mode TX starts
+      from an already-wire-format stored `tx_s` and must *not* convert again). Also split
+      `NTPServer.h`'s packet struct/protocol constants into a new `NTPPacket.h` -- `ntp_packet`
+      and `NTP_MODE_*`/`NTP_LEAP_*`/etc. never needed lwIP themselves, only `NTPServer::recv()`'s
+      *signature* does (`struct pbuf`/`ip_addr_t`), so `NTPResponseFields.h` can depend on the
+      packet layout without pulling lwIP headers into a file that has nothing to do with lwIP.
+      `NTPServer::recv()` shrunk from ~120 lines to the intended shell: pbuf field extraction,
+      calls into the new pure functions, interleaved-client lookup, write results into the
+      response packet, `udp_sendto()` -- no more inline `Ntp64` construction or duplicated
+      RX/TX correction arithmetic.
+      New `test/test-NTPResponseFields.cpp` (18 tests) covers the full plan sketched above:
+      request length/version/mode validity (each independently); unsynced-via-zero-reftime,
+      unsynced-via-over-threshold-dispersion, and the exact-threshold boundary; synced with no
+      leap pending and with a `LEAP_INSERT` pending (reusing the same 2016-12-31 fixture
+      `test-LeapSeconds.cpp` uses); poll clamping under/at/over the limit; and the wire-timestamp
+      conversion for a normal instant, a fractional-carry case (verified against hand-computed
+      carry arithmetic), the literal leap-second instant (reusing the
+      `test_tai_to_wire_ntp_leap_instant_and_next_day_collide_on_wire` fixture), and the
+      already-wire-format (`ntpWireTimestampFromWire`) path used by interleaved mode.
+      Makefile rule: `test-NTPResponseFields: test-NTPResponseFields.o NTPResponseFields.o
+      LeapSeconds.o $(LIBS)`. All 98 host-side tests (18 new + 80 existing) pass.
+      `NTPServer.cpp` itself still can't compile standalone in this environment -- confirmed via
+      the same before/after error-count comparison used for the `WireNtpTime` work (39 errors
+      pre-extraction, 25 post-extraction, all of them the same pre-existing `ip_addr_t`/`struct
+      pbuf`/`struct udp_pcb`/`htonl`-family/`enet_*`/`pbuf_*`/`udp_*` gaps, nothing new) -- but
+      the shell left behind is now small and straight-line enough that hand review of it carries
+      much less risk than hand-reviewing the logic that used to live inline in it.
 
       Testing plan for the extracted builder, once it exists: unsynced (`reftime == 0`) ->
       stratum 16/`NTP_LEAP_UNSYNC`; dispersion over the `0x10000` threshold -> same fallback, even

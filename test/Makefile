@@ -36,6 +36,7 @@ test-ClockHoldover: test-ClockHoldover.o ClockHoldover.o Elapsed.o ClockPID.o NT
 test-LeapSeconds: test-LeapSeconds.o LeapSeconds.o DateTime.o $(LIBS)
 test-InputCapture: test-InputCapture.o InputCapture.o $(LIBS)
 test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o $(LIBS)
+test-NTPResponseFields: test-NTPResponseFields.o NTPResponseFields.o LeapSeconds.o $(LIBS)
 
 $(BINS):
 	g++ $(CXX_FLAGS) -o $@ $^
