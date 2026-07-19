@@ -139,6 +139,19 @@ void updateTime(TaiNtpTime gpstime) {
 
   DisciplineResult r = discipline.process(gps.ppsCounter(), gpstime);
   holdover.noteSampleReceived(millis());
+  if(r.rejected) {
+    // Duplicate (unrelated to a leap second) or backwards GPS timestamp --
+    // see TODO.md, "Leap second handling".
+    Serial.print("D ");
+    Serial.println(gpstime.v);
+    return;
+  }
+  if(r.leapSecondCorrected) {
+    // GPS receiver stalled on a second instead of emitting a literal :60 --
+    // corrected, not rejected. See TODO.md, "Leap second handling".
+    Serial.print("L ");
+    Serial.println(r.gpstime.v);
+  }
   if(r.clockSet) {
     Serial.print("S "); // clock set message
     Serial.print(r.pps);

@@ -188,10 +188,130 @@ Notes from a code review, roughly ordered by priority. Completed items have been
         instant and the following day's `:00` still collide on the *wire* (expected -- that's
         the wire format's own inherent limitation, not something this conversion should hide).
         `NTPServer.cpp` itself has no host-side tests (lwIP dependency, per CLAUDE.md), so the
-        packet-assembly wiring couldn't get direct coverage. Still open: confirming against
-        real GPS hardware whether it actually emits a literal `:60` during a leap second, per
-        the note above -- unconfirmed either way, this fix is inert (offset is 0) for any date
-        before the next announced leap second.
+        packet-assembly wiring couldn't get direct coverage.
+
+      **Real GPS receiver behavior during a leap second, per time-nuts mailing-list reports
+      (2026-07-17): the `:60` fix above covers only one of at least three observed behaviors.**
+      Different modules have been observed to: emit a literal `23:59:60` (handled by the fix
+      above); repeat `23:59:59` (send two consecutive fixes/PPS pulses both claiming
+      `23:59:59`); or, on at least one module, something stranger still -- repeat an *earlier*
+      second (`23:59:57`) rather than the one immediately before the boundary, apparently a
+      vendor bug rather than a documented behavior. A fourth theoretical option -- skip `:60`
+      entirely and jump straight from `23:59:59` to `00:00:00` -- isn't in that report but is
+      worth naming too, since it's the one case that's already harmless (see below).
+
+      The `:59`-duplicate case is a real, currently-unhandled gap, and it can't be closed inside
+      `DateTime` the way the `:60` case was: `DateTime` is a stateless calendar<->timestamp
+      converter, so two consecutive PPS pulses that both report calendar time `23:59:59` produce
+      *identical* `ntptime()` output -- the exact zero-elapsed-time aliasing bug this whole area
+      of work exists to fix, just triggered by a different receiver behavior than the one the
+      current fix targets. Fixing it requires state (remembering the previous accepted sample),
+      which only exists one layer up, where consecutive samples actually get compared.
+
+      Rather than special-case each vendor's specific quirk (which the `:57` report suggests is
+      a losing game -- there's no clean pattern to a vendor bug), the more robust fix is a
+      general monotonicity guard where GPS samples are consumed: `ClockDiscipline::process()`
+      (already the class that owns "should this sample be trusted," via the median-of-3/
+      bootstrap logic -- see `DONE.md`, "extracting the logic out of the ino file"). This
+      composes cleanly with the existing `:60` fix rather than conflicting with it: a receiver
+      that correctly emits `:60` never triggers this guard at all, since `DateTime` already gives
+      it a genuinely distinct, monotonically-increasing `gpstime` every PPS pulse -- the guard is
+      purely additional protection for the receivers that don't.
+      - New state: `ClockDiscipline` remembers the previous *accepted* sample's `gpstime`
+        (`TaiNtpTime lastGpstime_` or similar), updated on every accepted sample, meaningless
+        before the first one (mirrors the existing `settime_` bootstrap flag).
+      - New first check in `process()`, before today's median-of-3/bootstrap branching (so a
+        bad sample never pollutes the median buffer, same principle as the existing
+        `elapsedWithin()` PPS/GPS lag check rejecting *before* `discipline.process()` is even
+        called): classify the incoming `gpstime` against `lastGpstime_`.
+        - `gpstime > lastGpstime_`: normal, proceed exactly as today.
+        - `gpstime == lastGpstime_` **and** `leapSecondPendingToday(taiToWireNtp(gpstime))` is
+          true: this is the leap-second duplicate -- step the sample forward by one full second
+          (synthesize `gpstime + 1`) before feeding it to the median buffer/PID, matching what a
+          `:60`-emitting receiver would have produced natively. Store the *stepped* value as the
+          new `lastGpstime_`, not the original, so the next comparison (whatever the receiver
+          does next) is against a correctly-advanced baseline.
+        - `gpstime == lastGpstime_` but **not** within a pending-leap-second day: a spurious
+          duplicate fix unrelated to a leap second (a GPS glitch, a repeated NMEA sentence) --
+          reject it the same way an out-of-tolerance lag sample already gets rejected today (no
+          PID sample, no reftime update, `lastGpstime_` unchanged).
+        - `gpstime < lastGpstime_`: a backwards jump -- never valid, leap second or not (this is
+          exactly the `:57`-style vendor-bug case) -- always reject, regardless of
+          `leapSecondPendingToday()`. A leap second only ever produces a *stall* (same value
+          again), never something that looks like it went backwards.
+      - `DisciplineResult` needs a way to distinguish "rejected" and "accepted via leap-second
+        correction" from a normal update, so `updateTime()` (teensy-ntp.ino) can log it
+        distinctly -- matching the existing `"S "`/`"LAG "` diagnostic-prefix convention already
+        used there for clock-set/lag-rejected messages.
+      - The fourth, unreported-but-plausible case -- skipping `:60` and silently jumping straight
+        to `00:00:00` -- needs no special handling under this design: no duplicate occurs (each
+        PPS pulse still gets a distinct, correctly-increasing `gpstime`, since the receiver just
+        never reports `:60` or repeats anything), so `ClockDiscipline`'s regression is never fed
+        a corrupt zero-elapsed sample. The served time is transiently 1s off from true UTC right
+        after the leap second (the receiver silently ate it), but that's a discrete offset the
+        PID's existing P/I terms already know how to correct over subsequent samples, same as
+        recovering from any other momentary offset -- not a regression-corrupting bug like the
+        other three.
+
+      **Implemented 2026-07-18.** One refinement made during implementation, worth calling out:
+      the design above said to key the leap-stall check off `leapSecondPendingToday()`, which
+      flags the *whole UTC day* a leap second is scheduled (the right behavior for the wire LI
+      field, which has to warn clients a day in advance) -- reusing it here would have been a
+      real bug, not just an imprecision. A duplicate `gpstime` from an unrelated GPS glitch at,
+      say, noon on the leap day would have been misclassified as the leap-second stall and
+      *stepped forward by one second before being fed to the regression* -- reintroducing
+      exactly the spurious +1s-jump corruption this whole fix exists to prevent, just gated
+      behind a rarer (1-day-a-year-ish) coincidence instead of every leap second. Added a new,
+      narrower lookup instead: `leapSecondStallSecond(WireNtpTime, LeapSecondType*)`
+      (`LeapSeconds.h/.cpp`) -- true only for the exact instant a stall/duplicate can genuinely
+      happen, the last regular second before a boundary (`effectiveNtpTime - 1`, i.e. 23:59:59
+      the day of an insertion), not the whole day. `ClockDiscipline::process()` calls this one,
+      not `leapSecondPendingToday()`.
+
+      `ClockDiscipline.h` gained `lastGpstime_` (private state, initialized on both the
+      clock-set path and the normal-accept path) and `DisciplineResult` gained `rejected`/
+      `leapSecondCorrected` bools, matching the design above exactly otherwise: `gpstime <
+      lastGpstime_` rejects unconditionally; `gpstime == lastGpstime_` checks
+      `leapSecondStallSecond(taiToWireNtp(gpstime), ...)` and either steps forward by 1 and
+      accepts, or rejects. `teensy-ntp.ino`'s `updateTime()` logs both outcomes distinctly
+      (`"D "` for rejected, `"L "` for leap-corrected), matching the existing `"S "`/`"LAG "`
+      convention, and returns early without touching `holdover`'s dispersion/reftime paths on
+      rejection (the `noteSampleReceived()` "GPS is alive" signal still fires either way, same
+      as before -- a rejected sample means bad *data*, not silence).
+
+      Extending `test-ClockDiscipline.cpp` surfaced one more thing the original design didn't
+      anticipate: two existing tests (`test_full_pid_selects_median_ascending_order`/
+      `_descending_order`) constructed out-of-arrival-order *samples* by feeding `gpstime`
+      itself out of order (with `pps` held fixed) -- which the new monotonicity guard now
+      correctly rejects, since that's no longer a realistic scenario once gpstime must advance
+      monotonically. Fixed by keeping `gpstime` strictly increasing (1 real second per call, as
+      it always is in reality) and instead varying `pps` (hardware ticks) per call so the local
+      clock's own extrapolated elapsed time produces the desired out-of-order *offset* sequence
+      -- still exercises the same `median()` branches, just via the parameter that can
+      legitimately vary non-monotonically (offset/drift, not true time). The specific pps/gpstime
+      values were derived and cross-checked with a small script mirroring
+      `NTPClock::getTime()`/`getOffset()` exactly, not hand-approximated, given how easy the
+      64-bit fixed-point carry arithmetic is to get subtly wrong by hand. Two other existing
+      tests (`test_resolve_updates_local_clock`, `test_buffering_calls_do_not_touch_local_clock`)
+      previously reused one identical `gpstime` across 2-3 consecutive calls purely as a
+      simplification (their assertions never depended on the value itself); switched to
+      distinct increasing values with an updated (still hand-verified) expected median.
+      New tests: a duplicate outside any leap window is rejected (`pid` sample count and
+      `lastGpstime_` both unchanged); the exact 2016-12-31 23:59:59 TAI value (already
+      cross-checked in `test-LeapSeconds.cpp`) repeated back-to-back is accepted with `gpstime +
+      1` and does reach the PID; and a backwards jump starting from that same leap-adjacent value
+      is still rejected, confirming the leap-window check can't be tricked into forgiving a
+      genuine backwards jump. `test-LeapSeconds.cpp` gained direct coverage of
+      `leapSecondStallSecond()`, including the noon-on-leap-day case that motivated narrowing it
+      in the first place. All 105 host-side tests pass (7 newly added -- 3 in
+      `test-ClockDiscipline.cpp`, 4 in `test-LeapSeconds.cpp` -- plus the existing 98, several of
+      which needed their `gpstime` values adjusted as described above without changing what they
+      actually verify).
+
+      Still separately open, and unaffected by this design: confirming which of these behaviors
+      *this specific device's* GPS module actually exhibits (or whether it does something not
+      in the time-nuts report at all) -- the point of the general monotonicity guard above is
+      that this no longer needs to be known in advance to be safe against.
 
 ## NTP timestamp era rollover (Y2036) (open issue)
 

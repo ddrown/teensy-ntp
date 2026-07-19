@@ -112,6 +112,35 @@ void test_tai_to_wire_ntp_leap_instant_and_next_day_collide_on_wire() {
   TEST_ASSERT_EQUAL(3692217600UL, taiToWireNtp(TaiNtpTime(3692217637UL)).v);     // next day :00
 }
 
+// leapSecondStallSecond() is deliberately narrower than leapSecondPendingToday()
+// -- see LeapSeconds.h -- true only for the exact last regular second before
+// a boundary (23:59:59 the day of an insertion), not the whole UTC day.
+
+void test_stall_second_true_at_last_second_of_leap_day() {
+  LeapSecondType type;
+  TEST_ASSERT_TRUE(leapSecondStallSecond(WireNtpTime(3692217600UL - 1), &type));
+  TEST_ASSERT_EQUAL(LEAP_INSERT, type);
+}
+
+void test_stall_second_false_two_seconds_before_boundary() {
+  LeapSecondType type;
+  TEST_ASSERT_FALSE(leapSecondStallSecond(WireNtpTime(3692217600UL - 2), &type));
+}
+
+// The whole-day check would say "pending" here (it's still 2016-12-31), but
+// the stall-second check must not -- this is exactly the case that motivated
+// using the narrower check for the GPS-duplicate-timestamp guard: a glitch
+// at noon on a leap day is not the leap second itself.
+void test_stall_second_false_at_noon_on_leap_day() {
+  LeapSecondType type;
+  TEST_ASSERT_FALSE(leapSecondStallSecond(WireNtpTime(3692217600UL - 43200), &type));
+}
+
+void test_stall_second_false_at_effective_moment() {
+  LeapSecondType type;
+  TEST_ASSERT_FALSE(leapSecondStallSecond(WireNtpTime(3692217600UL), &type));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_table_timestamps_agree_with_datetime);
@@ -130,5 +159,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_offset_at_tai_holds_forever_after_last_entry);
   RUN_TEST(test_tai_to_wire_ntp_normal_second);
   RUN_TEST(test_tai_to_wire_ntp_leap_instant_and_next_day_collide_on_wire);
+  RUN_TEST(test_stall_second_true_at_last_second_of_leap_day);
+  RUN_TEST(test_stall_second_false_two_seconds_before_boundary);
+  RUN_TEST(test_stall_second_false_at_noon_on_leap_day);
+  RUN_TEST(test_stall_second_false_at_effective_moment);
   return UNITY_END();
 }

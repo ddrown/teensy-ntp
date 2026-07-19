@@ -64,6 +64,16 @@ bool leapSecondPendingToday(WireNtpTime ntpTime, LeapSecondType *type) {
   return false;
 }
 
+bool leapSecondStallSecond(WireNtpTime ntpTime, LeapSecondType *type) {
+  for (int i = leapSecondsCount - 1; i >= 0; i--) {
+    if (ntpTime.v == leapSeconds[i].effectiveNtpTime.v - 1) {
+      *type = leapSeconds[i].type;
+      return true;
+    }
+  }
+  return false;
+}
+
 int8_t leapSecondOffsetAtTai(TaiNtpTime taiTime, bool *isLeapInstant) {
   int matchIndex = -1;
   for (int i = leapSecondsCount - 1; i >= 0; i--) {

@@ -45,6 +45,36 @@ DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
   r.gpstime = gpstime;
 
   if(settime_) {
+    if (gpstime.v < lastGpstime_.v) {
+      // Backwards jump -- never valid, leap second or not. A real leap
+      // second only ever produces a *stall* (the same gpstime again), never
+      // something that looks like it went backwards -- this is the "GPS
+      // module repeats an earlier second than the one before the leap
+      // boundary" failure mode, a vendor bug rather than a documented
+      // behavior. See TODO.md, "Leap second handling".
+      r.rejected = true;
+      return r;
+    }
+    if (gpstime.v == lastGpstime_.v) {
+      LeapSecondType stallType;
+      if (leapSecondStallSecond(taiToWireNtp(gpstime), &stallType)) {
+        // The GPS receiver stalled on the last regular second instead of
+        // emitting a literal :60 (a real, observed receiver behavior) --
+        // step forward by one full second, matching what a :60-emitting
+        // receiver would have produced natively.
+        gpstime = TaiNtpTime(gpstime.v + 1);
+        r.gpstime = gpstime;
+        r.leapSecondCorrected = true;
+      } else {
+        // A duplicate unrelated to a leap second -- a GPS glitch or a
+        // repeated fix. Reject it the same way an out-of-tolerance lag
+        // sample already gets rejected before process() is even called.
+        r.rejected = true;
+        return r;
+      }
+    }
+    lastGpstime_ = gpstime;
+
     int64_t offset = localClock_->getOffset(pps, gpstime, 0);
     samples_[wait_].offset = offset;
     samples_[wait_].pps = pps;
@@ -74,6 +104,7 @@ DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
     localClock_->setTime(pps, gpstime);
     pid_->add_sample(pps, gpstime, 0);
     settime_ = 1;
+    lastGpstime_ = gpstime;
     r.clockSet = true;
   }
 

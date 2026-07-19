@@ -52,6 +52,18 @@ int8_t leapSecondOffsetAt(WireNtpTime ntpTime);
 // NTP domain as leapSecondOffsetAt().
 bool leapSecondPendingToday(WireNtpTime ntpTime, LeapSecondType *type);
 
+// True if ntpTime is exactly the last regular second before a scheduled
+// leap-second boundary (23:59:59 the day of an insertion, i.e.
+// effectiveNtpTime - 1). Deliberately narrower than leapSecondPendingToday()
+// (which flags the whole UTC day, appropriate for the wire LI field): this
+// exists for a GPS-receiver-duplicate-timestamp guard, where the whole-day
+// window would be too permissive -- an unrelated GPS glitch at, say, noon on
+// a leap day would otherwise get misclassified as the leap second itself and
+// fed to the drift regression as a spurious +1s jump, exactly the kind of
+// corruption this fix exists to prevent. See TODO.md, "Leap second handling".
+// If true, *type is set to that entry's type.
+bool leapSecondStallSecond(WireNtpTime ntpTime, LeapSecondType *type);
+
 // Cumulative TAI-UTC offset (seconds) in effect at taiTime, where taiTime is
 // in the *TAI-like* domain instead: real, leap-second-adjusted seconds since
 // 1900, monotonic with no aliasing across a leap second -- the domain
