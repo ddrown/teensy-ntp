@@ -25,6 +25,11 @@ NTPClients clientList;
 InputCapture pps;
 elapsedMillis msec, epoll_msec;
 TaiNtpTime compileTime;
+// seconds-since-2000 counterpart of compileTime, used only for the
+// gpstime/compileTime sanity check in gps_serial_poll() -- see
+// DateTime::secondstime() and TODO.md/DONE.md, "NTP timestamp era rollover
+// (Y2036)".
+uint32_t compileSecondsTime;
 ClockDiscipline discipline(&localClock, &ClockPID);
 ClockHoldover holdover(&localClock, &ClockPID);
 NTPServer server(&localClock);
@@ -97,10 +102,11 @@ void setup() {
   server.setup();
 
   compileTime = compile.ntptime();
+  compileSecondsTime = compile.secondstime();
   // this needs to happen after enet_init, so the 1588 clock is running
   localClock.setTime(COUNTERFUNC(), compileTime);
   // allow for compile timezone to be 14 hours ahead
-  compileTime = TaiNtpTime(compileTime.v - 14*60*60);
+  compileSecondsTime -= 14*60*60;
 
   webserver.begin();
   webcontent.begin();
@@ -208,8 +214,14 @@ static void slower_poll() {
 static void gps_serial_poll() {
   if(GPS_SERIAL.available()) {
     if(gps.decode()) {
-      TaiNtpTime gpstime = gps.GPSnow().ntptime();
-      if(gpstime.v < compileTime.v) {
+      DateTime now = gps.GPSnow();
+      TaiNtpTime gpstime = now.ntptime();
+      // secondstime(), not ntptime(): ntptime() is wire-format-constrained
+      // and wraps at 2036-02-07, which would eventually make this
+      // comparison permanently reject every real GPS fix as "bad". See
+      // DateTime::secondstime() and TODO.md/DONE.md, "NTP timestamp era
+      // rollover (Y2036)".
+      if(now.secondstime() < compileSecondsTime) {
         Serial.print("B "); // gps clock bad message (for example, on startup before GPS almanac)
         Serial.println(gpstime.v);
       } else {

@@ -171,6 +171,16 @@ DateTime::DateTime(
   second_ = conv2d(time + 6);
 }
 
+// Deliberately no LeapSeconds involvement, unlike ntptime()/unixtime() below
+// -- this is only ever used for a coarse firmware-internal sanity comparison
+// (gpstime vs. compileTime, see TODO.md/DONE.md "NTP timestamp era rollover
+// (Y2036)") where real-world compares differ by months/years, so
+// leap-second precision doesn't matter and isn't worth the dependency.
+uint32_t DateTime::secondstime(void) const {
+  uint16_t days = date2days(year_, month_, day_);
+  return (uint32_t)time2long(days, hour_, minute_, second_);
+}
+
 TaiNtpTime DateTime::ntptime(void) const {
   uint32_t t;
   uint16_t days = date2days(year_, month_, day_);

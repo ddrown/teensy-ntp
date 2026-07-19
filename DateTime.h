@@ -22,8 +22,13 @@ class DateTime {
   uint16_t minute() const { return minute_; }
   uint16_t second() const { return second_; }
 
-  // 32-bit times as seconds since 1/1/2000
-  long secondstime() const;
+  // 32-bit times as seconds since 1/1/2000, unsigned so it's monotonic with
+  // real time all the way out to ~2136 (2^32 seconds from the 2000 epoch) --
+  // no NTP-wire-format constraint forcing it to alias onto 1900-2000 the way
+  // ntptime() deliberately does, so plain `<` works for comparing two
+  // firmware-internal timestamps without a wraparound-aware helper. See
+  // TODO.md/DONE.md, "NTP timestamp era rollover (Y2036)".
+  uint32_t secondstime() const;
   // 32-bit times as seconds since 1/1/1900, TAI-like: real, leap-second-
   // adjusted seconds, monotonic across a leap second insertion/deletion --
   // NOT the raw NTP wire format. Convert via LeapSeconds.h's

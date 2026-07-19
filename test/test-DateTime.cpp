@@ -40,6 +40,27 @@ void test_numberdate() {
   TEST_ASSERT_EQUAL(2085523200 + 37, feb2036.unixtime());
 }
 
+// secondstime() epoch is exactly 2000-01-01 00:00:00. 2000 was a leap year,
+// so 2001-01-01 is 366 days (31622400s) later.
+void test_secondstime_basic() {
+  DateTime oneYearIn = DateTime(2001, 1, 1, 0, 0, 0);
+  TEST_ASSERT_EQUAL(31622400UL, oneYearIn.secondstime());
+}
+
+// ntptime() is deliberately wire-format-constrained and wraps at
+// 2036-02-07 (confirmed: 2036-01-01 encodes to 4291747200, just under 2^32;
+// 2036-03-01 wraps to 1963904) -- a later date can numerically compare as
+// *smaller*, exactly the bug behind "NTP timestamp era rollover (Y2036)" in
+// TODO.md/DONE.md. secondstime() has no such constraint and stays correctly
+// ordered across the same boundary.
+void test_secondstime_monotonic_across_ntp_wire_wrap() {
+  DateTime beforeWrap = DateTime(2036, 1, 1, 0, 0, 0);
+  DateTime afterWrap = DateTime(2036, 3, 1, 0, 0, 0);
+
+  TEST_ASSERT_TRUE(afterWrap.ntptime().v < beforeWrap.ntptime().v);
+  TEST_ASSERT_TRUE(beforeWrap.secondstime() < afterWrap.secondstime());
+}
+
 void test_century_not_leap() {
   // 2100 is divisible by 4 and by 100 but not by 400, so it is NOT a leap
   // year. date2days() (encode) and DateTime::time() (decode) must agree,
@@ -111,6 +132,8 @@ int main() {
   RUN_TEST(test_ntpdate);
   RUN_TEST(test_stringdate);
   RUN_TEST(test_numberdate);
+  RUN_TEST(test_secondstime_basic);
+  RUN_TEST(test_secondstime_monotonic_across_ntp_wire_wrap);
   RUN_TEST(test_century_not_leap);
   RUN_TEST(test_second_60_does_not_corrupt_fields);
   RUN_TEST(test_leap_second_ntptime_is_monotonic_not_aliased);
