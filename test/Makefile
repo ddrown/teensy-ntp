@@ -35,7 +35,7 @@ test-Elapsed: test-Elapsed.o Elapsed.o $(LIBS)
 test-ClockHoldover: test-ClockHoldover.o ClockHoldover.o Elapsed.o ClockPID.o NTPClock.o $(LIBS)
 test-LeapSeconds: test-LeapSeconds.o LeapSeconds.o DateTime.o $(LIBS)
 test-InputCapture: test-InputCapture.o InputCapture.o $(LIBS)
-test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o $(LIBS)
+test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o Elapsed.o $(LIBS)
 test-NTPResponseFields: test-NTPResponseFields.o NTPResponseFields.o LeapSeconds.o $(LIBS)
 
 $(BINS):

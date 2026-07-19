@@ -166,6 +166,37 @@ void test_expireClients_uses_wire_domain_not_raw_tai_now() {
   TEST_ASSERT_NOT_NULL(clients.findClient(&client, WireNtpTime(wireNow - 4090), 0));
 }
 
+// Regression test for the wraparound bug fixed alongside elapsedWithin():
+// expireClients() used to compute `expire_time = nowWire - 4096` and compare
+// via raw `rx_s.v < expire_time.v`. Right at the 32-bit NTP wire-seconds
+// wrap (~136 years out, same wraparound class as TODO.md/DONE.md's "NTP
+// timestamp era rollover (Y2036)" but one domain over), a client that
+// registered shortly before the wrap has a large rx_s.v, while `nowWire` is
+// a small value just past it -- `expire_time.v` then underflows to a huge
+// value, and the genuinely-fresh client's large rx_s.v compares as "less
+// than" it, incorrectly expiring it. elapsedWithin()'s wraparound-correct
+// subtraction must not have this failure mode.
+void test_expireClients_survives_wire_domain_wrap() {
+  NTPClients clients;
+  ip4_addr_t fresh = addr(1);
+
+  // Both values are tiny (well before 1972, the first LeapSeconds table
+  // entry), so the TAI/wire leap offset here is 0 and taiNow == wireNow --
+  // this test is purely about the raw 32-bit arithmetic wraparound, not the
+  // leap-second conversion (covered separately above).
+  uint32_t wireNow = 5; // just past the wire-domain wrap
+  uint32_t wireRx = 0xFFFFFFFFUL - 4; // 10s before the wrap -- fresh either way
+  TaiNtpTime taiNow(wireNow);
+  localClock.setTime(0, taiNow);
+  When(Method(ArduinoFake(), micros)).Return(0);
+
+  clients.addRx(&fresh, 1, WireNtpTime(wireRx), 0);
+
+  clients.expireClients();
+
+  TEST_ASSERT_NOT_NULL(clients.findClient(&fresh, WireNtpTime(wireRx), 0));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_findClient_no_match_before_any_addRx);
@@ -179,5 +210,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_addTx_requires_matching_port);
   RUN_TEST(test_expireClients_generic_fresh_survives_stale_expires);
   RUN_TEST(test_expireClients_uses_wire_domain_not_raw_tai_now);
+  RUN_TEST(test_expireClients_survives_wire_domain_wrap);
   return UNITY_END();
 }
