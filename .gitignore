@@ -12,3 +12,4 @@ test/test-ClockHoldover
 test/test-LeapSeconds
 test/test-NTPClients
 test/test-NTPResponseFields
+build/
