@@ -741,3 +741,58 @@ that were added as each one was closed out. See `TODO.md` for what's still open.
       `4291747200` and `1963904` respectively, i.e. the *later* date compares numerically
       *smaller* once wrapped, while `secondstime()` on the same two dates stays correctly
       ordered. All 107 host-side tests pass (2 new + 105 existing, unaffected).
+
+## README
+
+Rewrote README.md per the 2026-07-20 review, in the same priority order. One item -- whether to
+add a `LICENSE` file -- stayed in TODO.md since it needs the repo owner's decision, not just
+writing.
+
+- [x] **Intro paragraph.** What this is and why a Teensy 4.1 + hardware 1588 timer instead of the
+      more common Raspberry Pi + gpsd + chrony approach (dedicated timer vs. OS scheduling
+      jitter, cost, power, no SD card to corrupt).
+- [x] **Accuracy in practice.** Cited the actual bench result from this session's dual-Teensy
+      comparison (agreement within a few hundred ns, well inside the tens-of-µs measurement
+      error) alongside the theoretical `precision` field, instead of only the latter.
+- [x] **GPS/PPS loss (holdover) behavior.** Documented the `HOLDOVER_STALE_MS`/`HOLDOVER_PHI_PPM`
+      constants from `ClockHoldover.h`, the D-only discipline switch, and derived the actual
+      stratum-16 fallback time from `growDispersion()`'s formula: dispersion grows at
+      `HOLDOVER_PHI_PPM * 1e-6` per second (as a fraction of the 0x10000 = 1-second NTP
+      threshold), so from a near-zero baseline it takes `1/(15e-6)` ≈ 66667s ≈ 18.5 hours of
+      continuous outage before `NTPResponseFields.cpp`'s `dispersion > 0x10000` check flips the
+      server to stratum 16 / LI=unsync.
+- [x] **`settings.h` options.** Documented what's actually there now (`GPS_BAUD`, `GPS_SERIAL`,
+      `hostnameTable[]`) rather than the TODO item's original wording -- `DHCP_HOSTNAME` was
+      replaced by the MAC-keyed `hostnameTable[]` earlier this session, and `GPS_USES_RMC` turned
+      out to already be gone (see `GPS.cpp`'s `decodeType()` comment: sentence type/order
+      detection moved to runtime, keyed off `InputCapture::getCaptures()`, specifically to stop
+      assuming a fixed sentence order -- this predates today and was never itself recorded as a
+      DONE item, so noting it here). `CLAUDE.md`'s architecture section still describes the old
+      `GPS_USES_RMC` macro and an out-of-date "which classes are tested" list -- both are stale
+      and worth a follow-up pass, not touched here since out of scope for the README.
+- [x] **Build/flash steps.** Added both the Arduino IDE + Teensyduino path and the arduino-cli
+      path (PJRC's Boards Manager package index, `teensy:avr` core, manual `teensy41_ethernet`
+      clone since it isn't Library-Manager-indexed) set up earlier this session, plus a pointer
+      to this repo's `compile.sh`/`upload.sh`/`monitor.sh`.
+- [x] **Wiring/pin table.** PPS (35), GPS TX/RX (0/1, `Serial1`), Ethernet (built-in RJ45, no
+      wiring), power -- table form instead of the single PPS-pin mention.
+- [x] **Troubleshooting section.** No-signal-at-all (check `GPS_BAUD` first -- `GPS.cpp` silently
+      drops checksum failures with no log line, so a baud mismatch and a genuine no-sky-view
+      look identical from the firmware's side; this was today's own real debugging session),
+      slow-to-lock/cold-start almanac timing, no-PPS-detected (`LAG` message, `inHoldover`), and
+      the `bootloader_poll()`/stray-`screen`-session "rebooting to bootloader" gotcha from
+      earlier this session.
+- [x] **Links to `TODO.md`/`DONE.md`/`TESTPLAN.md`.** Added under a "Testing" section alongside
+      the existing `test/` mention.
+- [x] **Differentiators callout.** Theil-Sen + chi-squared, compiled leap-second table + TAI-like
+      domain, host-side unit tests for an Arduino sketch, IPv6 support. Also added a dedicated
+      "Hardware timestamping" section after a follow-up request: PPS input capture
+      (`InputCapture.cpp`) and both NTP packet RX (`lwip_t41.c`'s `p->timestamp = bdPtr->timestamp`)
+      and TX (`enet_txTimestampNextPacket()`/`enet_set_tx_timestamp_callback()`) are all real MAC
+      hardware timestamps, not software-timed. Explained *why* interleaved mode matters here
+      specifically (not just that it's supported): the hardware TX timestamp for a given response
+      isn't known until after it's physically sent, so `NTPServer.cpp` answers the first request
+      to a client with a software-estimated "basic mode" transmit time, then delivers the real
+      hardware-captured value on that client's *next* request via `NTPClients`' pending-timestamp
+      tracking.
+- [x] **`LICENSE`.** Repo owner chose MIT; added `LICENSE` and a README pointer.
