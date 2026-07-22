@@ -16,11 +16,11 @@ above it only needs the two-Teensy comparison setup.
 
 ## 2. Baseline dual-Teensy comparison
 
-- [ ] New firmware on one Teensy, old firmware on a second, both with GPS/PPS; compare
+- [x] New firmware on one Teensy, old firmware on a second, both with GPS/PPS; compare
       served time against each other via a local NTP client
-- [ ] Let it run past several `ClockDiscipline` resolve cycles (steady state buffers 2
+- [x] Let it run past several `ClockDiscipline` resolve cycles (steady state buffers 2
       samples then resolves on the 3rd) and confirm offset/ppb tracks the old firmware
-- [ ] Watch the normal per-sample serial line (`pps offsetHuman pidD dChiSq ppb gpstime`)
+- [x] Watch the normal per-sample serial line (`pps offsetHuman pidD dChiSq ppb gpstime`)
       for sane, not just present, values
 
 ## 3. Serial console message reference
@@ -36,7 +36,7 @@ Know these before watching the console, not just recognize them after the fact:
 | `L <gpstime>` | GPS stalled instead of emitting `:60`, corrected forward | `ClockDiscipline` + `LeapSeconds::leapSecondStallSecond()` |
 | `B <gpstime>` | GPS clock rejected as bad (`secondstime() < compileSecondsTime`) | `gps_serial_poll()`, `teensy-ntp.ino` |
 
-- [ ] Confirm a healthy GPS never spuriously prints `D` or `L` over a soak (false-positive
+- [x] Confirm a healthy GPS never spuriously prints `D` or `L` over a soak (false-positive
       check)
 
 ## 4. GPS holdover -- disconnect PPS (not the antenna/serial)
