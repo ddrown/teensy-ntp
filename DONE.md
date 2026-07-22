@@ -796,3 +796,25 @@ writing.
       hardware-captured value on that client's *next* request via `NTPClients`' pending-timestamp
       tracking.
 - [x] **`LICENSE`.** Repo owner chose MIT; added `LICENSE` and a README pointer.
+
+## GPS_BAUD auto-detection
+
+- [x] **Auto-detect GPS module baud rate at startup instead of a hardcoded `settings.h` value.**
+      Same "one firmware image per device" problem `DHCP_HOSTNAME` used to have -- motivated by
+      this session's own bench debugging (a test unit's GPS module was still at its factory 9600
+      baud while the firmware assumed 115200; the mismatch produced no error, just silently zero
+      satellites/no lock). `settings.h`'s `GPS_BAUD` define replaced with a `gpsBaudCandidates[]`
+      array (`{115200, 9600}`), structured the same way `hostnameTable[]` already is. New
+      `detectGpsBaud()` in `teensy-ntp.ino` (called from `setup()` in place of the old
+      `GPS_SERIAL.begin(GPS_BAUD)`) tries each candidate in turn: `GPS_SERIAL.begin(candidate)`,
+      drains whatever's buffered from the previous rate, then polls for up to `GPS_BAUD_PROBE_MS`
+      (2000ms -- long enough to reliably catch at least one full per-second NMEA burst) calling
+      `gps.decode()`, which already does checksum verification and only returns `true` on a
+      complete, valid ZDA/RMC sentence -- reused as-is rather than reimplementing checksum
+      verification. Falls back to the first candidate if nothing validates in any window, so a
+      module that's just slow to start still gets a sensible rate to keep listening at. Confirmed
+      safe to call before `pps.begin()` (`InputCapture`'s `getCaptures()`/`getCount()`/
+      `getMillis()` are plain zero-initialized counters, no hardware register access, so probing
+      doesn't touch not-yet-configured PPS capture hardware). Prints the detected rate over
+      serial (`"GPS baud: <n>"`). `README.md`'s `settings.h` options table and the
+      no-satellites troubleshooting bullet updated to match.

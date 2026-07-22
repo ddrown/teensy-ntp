@@ -2,8 +2,13 @@
 
 #include <stdint.h>
 
-#define GPS_BAUD 115200
 #define GPS_SERIAL Serial1
+
+// candidate GPS module baud rates, tried in order at startup -- see
+// detectGpsBaud() in teensy-ntp.ino. The same firmware image can then be used
+// across boards whose GPS modules are configured at different rates; the
+// first candidate that yields a valid NMEA sentence wins.
+static const uint32_t gpsBaudCandidates[] = {115200, 9600};
 
 // per-device hostnames, looked up by MAC address so the same firmware image
 // can be flashed onto any board -- see hostnameForMac() in teensy-ntp.ino.

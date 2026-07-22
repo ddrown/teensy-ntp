@@ -123,7 +123,7 @@ enabled -- see `settings.h` options below for baud rate and other per-device con
 
 | Define | Meaning |
 |---|---|
-| `GPS_BAUD` | GPS module's NMEA serial baud rate. Many u-blox modules ship at 9600 and need reconfiguring (e.g. via u-center) to run faster; this must match whatever the module is actually configured for, or nothing will decode (see Troubleshooting) |
+| `gpsBaudCandidates[]` | GPS module baud rates to try at startup, in order -- see `detectGpsBaud()` in `teensy-ntp.ino`. The first candidate that yields a checksum-valid NMEA sentence within ~2 seconds wins; the detected rate is printed over serial. Defaults to `{115200, 9600}`, since many u-blox modules ship at 9600 and get reconfigured to run faster |
 | `GPS_SERIAL` | Which Teensy hardware UART the GPS module is wired to (`Serial1` by default) |
 | `hostnameTable[]` | Maps each board's MAC address to a DHCP hostname, so the same compiled firmware image can be flashed onto multiple boards -- see `hostnameForMac()` in `teensy-ntp.ino`. Boards not listed fall back to a generated `teensy-xxxxxx` name from their MAC. Boot once, read the MAC printed over serial, add an entry, reflash |
 
@@ -137,12 +137,14 @@ It will start generating a graph of the local Clock Offset, the local Clock Sync
 
 ## Troubleshooting
 
-- **No satellites/no signal at all** (not just slow to lock): check `GPS_BAUD` actually matches
-  the module's configured baud rate first. A baud mismatch produces no valid NMEA at all rather
-  than an obvious error -- `GPS.cpp` verifies each sentence's checksum and silently drops
-  anything that fails, with no dedicated log line, so a wrong baud rate looks identical to "no
-  satellites in view" from the firmware's point of view. Tap the raw UART with a USB-serial
-  adapter to confirm the module is actually decoding at the baud rate you think it is.
+- **No satellites/no signal at all** (not just slow to lock): baud rate is auto-detected at
+  startup against `settings.h`'s `gpsBaudCandidates[]` (check the serial log's "GPS baud:" line),
+  so this is less likely than it used to be, but if your module runs at a rate not in that list,
+  add it -- a baud mismatch produces no valid NMEA at all rather than an obvious error (`GPS.cpp`
+  verifies each sentence's checksum and silently drops anything that fails, with no dedicated log
+  line), so it looks identical to "no satellites in view" from the firmware's point of view. Tap
+  the raw UART with a USB-serial adapter to confirm the module is actually decoding at whichever
+  baud rate it's using.
 - **GPS won't lock / slow to lock**: a cold start with no cached almanac can take up to ~12.5
   minutes; satellite visibility also depends heavily on antenna placement/sky view. You should
   see satellites showing up in the signal strength graph while the almanac is being downloaded.

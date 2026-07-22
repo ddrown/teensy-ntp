@@ -91,6 +91,38 @@ static const char *hostnameForMac(const uint8_t *mac) {
   return fallback;
 }
 
+// long enough to reliably catch at least one full NMEA burst (GPS modules
+// typically emit one per second, right after each PPS pulse) even right at
+// the edge of a probe window's start.
+#define GPS_BAUD_PROBE_MS 2000
+
+// tries each of settings.h's gpsBaudCandidates[] in turn, reusing GPS.cpp's
+// own checksum verification (via gps.decode()) rather than reimplementing
+// it -- the first candidate that yields a complete, checksum-valid ZDA/RMC
+// sentence wins. Falls back to the first candidate if none do, so a module
+// that's just slow to start (vs. actually misconfigured) still gets a
+// sensible rate to keep listening at.
+static uint32_t detectGpsBaud() {
+  const size_t numCandidates = sizeof(gpsBaudCandidates)/sizeof(gpsBaudCandidates[0]);
+  for(size_t i = 0; i < numCandidates; i++) {
+    uint32_t candidate = gpsBaudCandidates[i];
+    GPS_SERIAL.begin(candidate);
+    while(GPS_SERIAL.available()) { // drop whatever's buffered from the previous rate
+      GPS_SERIAL.read();
+    }
+    elapsedMillis probeElapsed;
+    while(probeElapsed < GPS_BAUD_PROBE_MS) {
+      if(GPS_SERIAL.available() && gps.decode()) {
+        return candidate;
+      }
+    }
+  }
+
+  uint32_t fallback = gpsBaudCandidates[0];
+  GPS_SERIAL.begin(fallback);
+  return fallback;
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -101,7 +133,9 @@ void setup() {
 
   DateTime compile = DateTime(__DATE__, __TIME__);
 
-  GPS_SERIAL.begin(GPS_BAUD);
+  uint32_t gpsBaud = detectGpsBaud();
+  Serial.print("GPS baud: ");
+  Serial.println(gpsBaud);
 
   enet_init(NULL, NULL, NULL);
 
