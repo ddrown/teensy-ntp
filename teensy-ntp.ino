@@ -233,12 +233,19 @@ static void gps_serial_poll() {
 
 // useful when using teensy_loader_cli
 static void bootloader_poll() {
+  static const char magic[] = "rebootnow";
+  static size_t matched = 0;
   if(Serial.available()) {
-    char r = Serial.read();
-    if(r == 'r') {
-      Serial.println("rebooting to bootloader");
-      delay(10);
-      asm("bkpt #251"); // run bootloader
+    char c = Serial.read();
+    if(c == magic[matched]) {
+      matched++;
+      if(magic[matched] == '\0') {
+        Serial.println("rebooting to bootloader");
+        delay(10);
+        asm("bkpt #251"); // run bootloader
+      }
+    } else {
+      matched = (c == magic[0]) ? 1 : 0;
     }
   }
 }
