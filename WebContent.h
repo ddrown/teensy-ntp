@@ -13,6 +13,11 @@ class WebContent {
   private:
     char jsonBuffer[1500] = "";
     uint32_t ppsToGPS = 0, ppsMillis = 0, gpstime = 0;
+    // until the first real GPS-derived timestamp arrives, jsonState() reports
+    // localClock's free-running (compile-time-seeded) time instead of the
+    // zero-initialized gpstime above, so the web UI's graphs don't sit stuck
+    // at the NTP epoch (1900) across a power cycle -- see setPPSData().
+    bool haveGpsTime = false;
     uint32_t counterPPS = 0;
     double offsetHuman = 0, pidD = 0, dChiSq = 0;
     int32_t clockPpb = 0;

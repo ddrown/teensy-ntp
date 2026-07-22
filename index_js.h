@@ -182,6 +182,7 @@ function gotData(json) {
   });
 
   const time = new Date((json.gpstime-2208988800)*1000);
+  $("#gpstimeHuman").text(time.toISOString());
 
   offsetData.addRow([time, json.offsetHuman * 1000000000]);
   if(offsetData.getNumberOfRows() > 100) {

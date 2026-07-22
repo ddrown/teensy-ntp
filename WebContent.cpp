@@ -4,6 +4,7 @@
 #include "DateTime.h"
 #include "GPS.h"
 #include "LeapSeconds.h"
+#include "NTPClock.h"
 
 #include "index_html.h"
 #include "index_js.h"
@@ -45,6 +46,15 @@ void WebContent::begin() {
 }
 
 const char *WebContent::jsonState() {
+  uint32_t displayGpstime = gpstime;
+  if(!haveGpsTime) {
+    TaiNtpTime now;
+    uint32_t nowFractional;
+    if(localClock.getTime(&now, &nowFractional)) {
+      displayGpstime = taiToWireNtp(now).v;
+    }
+  }
+
   int total = sizeof(jsonBuffer);
   int offset = snprintf(
     jsonBuffer,
@@ -53,7 +63,7 @@ const char *WebContent::jsonState() {
     ppsToGPS,
     ppsMillis,
     millis(),
-    gpstime,
+    displayGpstime,
     counterPPS,
     offsetHuman,
     pidD,
@@ -106,6 +116,7 @@ void WebContent::setPPSData(uint32_t new_ppsToGPS, uint32_t new_ppsMillis, TaiNt
   // convert from the internal TAI-like domain back to real wire format, or
   // the displayed time drifts ~37s ahead of the real GPS time.
   gpstime = taiToWireNtp(new_gpstime).v;
+  haveGpsTime = true;
 }
 
 void WebContent::setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, double new_pidD, double new_dChiSq, int32_t new_clockPpb, TaiNtpTime new_gpstime) {
@@ -115,6 +126,7 @@ void WebContent::setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, 
   dChiSq = isnan(new_dChiSq) ? 0 : new_dChiSq;
   clockPpb = new_clockPpb;
   gpstime = taiToWireNtp(new_gpstime).v;
+  haveGpsTime = true;
 }
 
 void WebContent::setHoldover(bool new_inHoldover, uint32_t new_holdoverDispersion, uint32_t new_holdoverElapsedMs) {

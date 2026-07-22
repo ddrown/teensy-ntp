@@ -11,7 +11,7 @@ above it only needs the two-Teensy comparison setup.
 - [x] `cd test && make dep all` -- full suite green (`test-DateTime`, `test-GPS`,
       `test-ClockDiscipline`, `test-LeapSeconds`, `test-NTPClients`, `test-NTPServer`,
       `test-ClockPID`, `test-InputCapture`)
-- [ ] Arduino/Teensyduino compile clean, flashes, boots, gets a DHCP lease, GPS acquires a
+- [x] Arduino/Teensyduino compile clean, flashes, boots, gets a DHCP lease, GPS acquires a
       fix
 
 ## 2. Baseline dual-Teensy comparison

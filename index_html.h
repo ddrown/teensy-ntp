@@ -15,7 +15,7 @@ static const PROGMEM char indexHTML[] = R"HTML(<html><head>
 <p>millis() at PPS: <span id='ppsMillis'></span></p>
 <p>millis() at GPS Timestamp: <span id='gpsCaptured'></span></p>
 <p>millis() now: <span id='curMillis'></span></p>
-<p>NTP time: <span id='gpstime'></span></p>
+<p>NTP time: <span id='gpstime'></span> (<span id='gpstimeHuman'></span>)</p>
 <p>IEEE 1588 counter at PPS: <span id='counterPPS'></span></p>
 <p>Offset between NTP/GPS times: <span id='offsetHuman'></span> s</p>
 <p>Estimate of NTP clock freq: <span id='pidD'></span> s/s</p>
