@@ -80,6 +80,17 @@ void wait_for_serial() {
   }
 }
 
+static const char *hostnameForMac(const uint8_t *mac) {
+  for(size_t i = 0; i < sizeof(hostnameTable)/sizeof(hostnameTable[0]); i++) {
+    if(memcmp(mac, hostnameTable[i].mac, sizeof(hostnameTable[i].mac)) == 0) {
+      return hostnameTable[i].hostname;
+    }
+  }
+  static char fallback[sizeof("teensy-ffffff")];
+  snprintf(fallback, sizeof(fallback), "teensy-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  return fallback;
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -94,9 +105,13 @@ void setup() {
 
   enet_init(NULL, NULL, NULL);
 
+  uint8_t mac[6];
+  enet_getmac(mac);
+  Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
   netif_set_status_callback(netif_default, netif_status_callback);
   netif_set_link_callback(netif_default, link_status_callback);
-  netif_set_hostname(netif_default, DHCP_HOSTNAME);
+  netif_set_hostname(netif_default, hostnameForMac(mac));
 
   pps.begin();
   server.setup();
