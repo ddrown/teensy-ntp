@@ -8,6 +8,19 @@ Notes from a code review, roughly ordered by priority. Completed items have been
 - [ ] `NTPClients` (NTPClients.cpp) does an O(n) linear scan over all 100 client slots on every
       packet (`addRx`/`addTx`/`findClient`/`expireClients`). Fine at n=100, but note if
       `NUMCLIENTS` ever grows significantly.
+- [ ] `settings.h`'s hardcoded `GPS_BAUD` (`teensy-ntp.ino:104`, `GPS_SERIAL.begin(GPS_BAUD)`) has
+      the same "one firmware image per device" problem `DHCP_HOSTNAME` used to (see DONE.md,
+      "look up per-device hostname by MAC address instead of settings.h edits") -- this session's
+      own baud-mismatch debugging (a second bench unit's GPS module was still at its factory 9600
+      while this firmware assumed 115200, and the mismatch produced no error, just silently zero
+      satellites/no lock) is exactly the failure mode auto-detection would catch immediately
+      instead of by hand. Try a short list of candidate bauds at startup (9600 and 115200 to
+      start, structured as an array in `settings.h` the way `hostnameTable[]` already is, so it's
+      easy to extend) -- for each, `GPS_SERIAL.begin(candidate)`, listen for a short window, and
+      check for at least one sentence with a valid NMEA checksum (reuse `GPS.cpp`'s existing
+      checksum verification rather than duplicating it). Stick with the first baud that produces
+      a valid sentence; print the detected baud over serial (same spirit as the MAC-address print
+      added for hostname lookup) so it's visible without opening `settings.h`.
 
 ## Holdover bench session findings (2026-07-22)
 
