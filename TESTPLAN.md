@@ -49,14 +49,14 @@ immediately, so `discipline.process()` never runs and never resets the holdover 
 timer.
 
 - [ ] Pull the PPS line; confirm serial prints repeated `LAG ...` with growing `ppsToGPS`
-- [ ] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
+- [x] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
       the next `slower_poll()` cycle
-- [ ] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing, `holdoverElapsedMs`
+- [x] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing, `holdoverElapsedMs`
       counting up -- leave it disconnected a couple minutes to see the dispersion actually
       *grow*, not just flip on
-- [ ] NTP responses keep being served (D-only discipline) with the growing dispersion
+- [x] NTP responses keep being served (D-only discipline) with the growing dispersion
       reflected to clients (`ntpq -c rv` or equivalent)
-- [ ] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
+- [x] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
       passes, sample accepted, `inHoldover` clears without a clock step
 
 This does **not** exercise the `D`/`L` duplicate-timestamp logic (needs fabricated NMEA
@@ -64,9 +64,9 @@ content, not a PPS dropout) -- see section 6.
 
 ## 5. Web UI
 
-- [ ] New holdover fields (`inHoldover`, `holdoverDispersion`, `holdoverElapsedMs`) update
+- [x] New holdover fields (`inHoldover`, `holdoverDispersion`, `holdoverElapsedMs`) update
       live and match serial/JSON
-- [ ] Existing offset graph / satellite radar still render correctly (new JSON fields
+- [x] Existing offset graph / satellite radar still render correctly (new JSON fields
       didn't break the page's JS parser)
 
 ## 6. Live NMEA-hijacker tests
@@ -194,13 +194,13 @@ clock crosses the wrap for real within minutes of bench time.
 
 ## 8. Leap-second table currency
 
-- [ ] Confirm `LeapSeconds.cpp`'s last entry is still current against IERS Bulletin C (no
+- [x] Confirm `LeapSeconds.cpp`'s last entry is still current against IERS Bulletin C (no
       way to test a real upcoming leap second on demand; this is the live-service
       substitute)
 
 ## 9. GPS parsing regression soak
 
-- [ ] Longer soak (1hr+) on the actual GPS module/sentence set in use, watching for
+- [x] Longer soak (1hr+) on the actual GPS module/sentence set in use, watching for
       checksum failures or decode stalls -- `GPS.cpp` had a String-to-char-buffer rewrite
       and runtime ZDA/RMC/GGA detection earlier in this line of work; the GNRMC/GNGGA
       ordering dependency has historically been fragile here
