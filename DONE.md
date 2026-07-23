@@ -863,7 +863,102 @@ embedded C with a reflash cycle between iterations.
       for all three modes without needing hardware.
 - [x] Uses a `venv` under `mitm/` (gitignored, along with generated `fixtures/` and
       `__pycache__/`) rather than installing `pyserial` globally.
-- [x] Ran all four scenarios (6a/6b/6c/7) against real hardware -- see the "MITM bench session
-      findings" TODO.md entry for what turned up (a real Y2036 `ClockDiscipline` wraparound bug,
-      6c's fixture being fundamentally blocked by the `compileSecondsTime` guard on current-era
-      firmware, and new evidence on the already-tracked `ClockPID` buffer issue).
+- [x] Ran all four scenarios (6a/6b/6c/7) against real hardware -- see "Y2036 wraparound in
+      ClockDiscipline's monotonicity guard" and "ClockPID buffer reset across holdover recovery and
+      bootstrap-phase leap seconds" below for what turned up (a real Y2036 `ClockDiscipline`
+      wraparound bug, 6c's fixture being fundamentally blocked by the `compileSecondsTime` guard on
+      current-era firmware, and new evidence on the already-tracked `ClockPID` buffer issue).
+
+## ClockPID buffer reset across holdover recovery and bootstrap-phase leap seconds
+
+- [x] **`ClockPID_c::reset_clock()` was dead code, letting one bad sample poison the whole
+      16-entry regression window.** Raised by the 2026-07-22 holdover bench session
+      (`holdover.txt`): after a long enough GPS/PPS outage, `calculate_d()`'s `remoteDuration *
+      COUNTSPERSECOND` (`ClockPID.cpp:97`, `COUNTSPERSECOND` = 25,000,000 on real hardware) mixed a
+      stale pre-holdover sample with fresh post-holdover ones spanning a `remoteDuration` large
+      enough to overflow the 32-bit multiply, corrupting one `rawOffsets[]` entry; `chisq()` then
+      overflowed `float` (printed literally as `ovf` by Arduino's `Print` class) for the ~4 samples
+      it took to age the bad entry out of the window. Originally read as diagnostics-only (`ppb`/
+      `pidD` stayed sane through the window) -- revised after the 2026-07-23 MITM bench session
+      (`data/mitm`) saw the same `ovf` signature paired with `ppb` pinned to `NTPClock.cpp`'s
+      `±500000` safety clamp and a ~27s `offsetHuman`, confirming a genuinely corrupted steered
+      output, not just a display glitch.
+      Section 6c (leap-second stall) as designed in `TESTPLAN.md`/`mitm/generate.py` couldn't run
+      against normally-compiled (2026+) firmware at all -- all four fixture samples came back `B`
+      (bad clock), correctly rejected by `gps_serial_poll()`'s `secondstime() < compileSecondsTime`
+      guard before ever reaching `ClockDiscipline`, since the fixture's 2016/2017 dates are always
+      older than the firmware's own build time. Retested with a temporary build (`compileTime`
+      seeded from a hardcoded 2016-01-01 instead of `__DATE__`) to get past the guard, which is what
+      surfaced the actual mechanism: a real leap second produces one sample with a genuinely
+      anomalous ~1s offset (nothing steps `localClock`'s internal time across the inserted second --
+      it only ever gets frequency corrections via `setPpb()`), and whether that sample corrupts
+      anything depends entirely on whether `ClockPID`'s median-of-3 outlier rejection is active yet.
+      During bootstrap (`pid_->full()` false), `ClockDiscipline::process()` always takes the
+      immediate-resolve branch, so the anomalous sample goes straight into the regression
+      unfiltered -- a 60s lead-in retest showed the corruption signature (`ovf`, clamped `ppb`) for
+      the two samples after the `L` correction. A follow-up 180s-lead-in retest (long enough to
+      clear bootstrap before the leap instant) came back completely clean, ruling out "`localClock`
+      is permanently behind after every leap second" as the mechanism, since that would corrupt
+      every subsequent sample forever, not just transiently -- in steady state, the anomalous
+      sample loses the median-of-3 comparison against two normal neighbors and never reaches
+      `ClockPID` at all.
+      Fixed `c5fdfab`: wired `reset_clock()` in at both known trigger points rather than leaving it
+      dead. `teensy-ntp.ino`'s `updateTime()` calls `ClockPID.reset_clock()` unconditionally
+      whenever `holdover.inHoldover()` is true, right before `discipline.process()` -- discarding
+      the stale pre-outage history instead of mixing it with fresh post-recovery samples.
+      `ClockDiscipline::process()`'s leap-stall-correction branch calls `pid_->reset_clock()` only
+      `if (!pid_->full())` -- narrow on purpose, so an ordinary leap second during steady-state
+      operation (median-of-3 already filters it) doesn't needlessly throw away a perfectly good
+      regression history; only the bootstrap case, which has no such protection, gets reset.
+      `test/test-ClockDiscipline.cpp` gained `test_leap_stall_resets_pid_buffer_during_bootstrap`
+      (5 unrelated real samples accumulated first, so "count ends up equal to before" can't be a
+      coincidence of starting from a single sample -- confirms a genuine reset, not an append) and
+      `test_leap_stall_does_not_reset_pid_buffer_when_full` (same correction with the buffer
+      already full via the existing `fillPidFull()` helper, confirms it's left untouched in steady
+      state); the pre-existing `test_duplicate_gpstime_at_leap_stall_is_corrected`'s final assertion
+      changed from `pid.samples() > samplesBefore` to `== samplesBefore` to match the
+      reset-not-append behavior. All 113 host-side tests passed at the time; firmware compiled
+      clean via `./compile.sh`. Not yet re-verified against real hardware (the holdover half needs
+      a real outage, the leap half needs the `mitm/` rig again) -- also confirmed working correctly
+      in both 6c retests regardless of this fix: the NTP Leap Indicator field (`+1s (64)` before the
+      transition, cleanly clearing to `(0)` after) and continuously correct served timestamps
+      throughout.
+
+## Y2036 wraparound in ClockDiscipline's monotonicity guard
+
+- [x] **Critical, would have affected every deployed unit in 2036.** `ClockDiscipline::process()`'s
+      monotonicity guard (`ClockDiscipline.cpp:48`) compared raw `TaiNtpTime.v` values with a bare
+      `if (gpstime.v < lastGpstime_.v)`. `TaiNtpTime` (`NtpTimestamp.h:35`) is monotonic across a
+      *leap second* but is still a plain wrapping `uint32_t` numerically -- it wraps at the same
+      2036-02-07 06:28:16 UTC instant as wire format. Found during the 2026-07-23 MITM bench session
+      (`mitm/rebase_relay.py wrap`): once the rebased clock crossed the wrap, every subsequent real
+      sample (`0 < 4294967293`, `1 < ...`, etc.) compared as "backwards" and was rejected (`D 0`
+      through `D 10`, and unboundedly after -- `lastGpstime_` never updates on a rejected sample, so
+      it couldn't recover until the *next* 2^32-second wrap). Same class of bug `817ce85` already
+      fixed for `gps_serial_poll()`'s sanity check (see "NTP timestamp era rollover (Y2036)" above),
+      but `ClockDiscipline`'s own comparison never got the same treatment. Compounded by two things
+      that made the failure silent rather than visibly broken (still open -- see TODO.md):
+      `holdover.noteSampleReceived()` fires unconditionally regardless of accept/reject, so
+      holdover's staleness timer never tripped; and `WebContent::setPPSData()` (called before the
+      accept/reject decision) echoed the raw incoming `gpstime`, so the web UI's "NTP time" field
+      kept advancing normally even while the actual disciplined `localClock` was silently frozen at
+      its last pre-wrap `ppb`, free-running forever with no correction and no alarm visible
+      anywhere.
+      Fixed `b2a4027`: replaced the bare `<` with `elapsedWithin(gpstime.v, lastGpstime_.v,
+      0x7fffffff, &forwardGap)` (`Elapsed.h`), the same wraparound-safe forward-gap pattern
+      `NTPClients.cpp` already uses for exactly this reason. `0x7fffffff` (~68 years) as the window
+      is deliberately enormous -- large enough that no legitimate gap between consecutive accepted
+      samples (even a very long holdover outage) is ever mistaken for backwards, while still
+      correctly rejecting a genuine backwards jump (which wraps to a huge gap under this
+      arithmetic). `forwardGap == 0` replaces the old `gpstime.v == lastGpstime_.v` duplicate/
+      leap-stall check, unchanged otherwise.
+      One pre-existing test (`test_leap_stall_resets_pid_buffer_during_bootstrap`, added alongside
+      the `ClockPID` fix above) had to be adjusted: its lead-in samples jumped from an arbitrary
+      unrelated epoch straight to the 2017 leap-second boundary, a gap that (correctly) now trips
+      the same guard as implausible -- changed to count up realistically toward the stall second
+      instead. Added `test_forward_sample_accepted_across_y2036_wraparound` (a real sample right
+      after the wrap, at `v=0` and `v=1`, is accepted, not rejected) and
+      `test_implausibly_large_forward_gap_still_rejected` (an exactly-half-range forward gap is
+      still rejected, confirming the fix doesn't turn the guard into a no-op). `test/Makefile`'s
+      `test-ClockDiscipline` link rule gained `Elapsed.o`. All 112 host-side tests (11 binaries, 2
+      new in this file) pass; firmware compiles clean via `./compile.sh`.
