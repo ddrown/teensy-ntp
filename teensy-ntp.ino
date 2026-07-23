@@ -192,6 +192,17 @@ void updateTime(TaiNtpTime gpstime) {
     return;
   }
 
+  if(holdover.inHoldover()) {
+    // The buffered history predates however long the outage was; mixing it
+    // with fresh post-recovery samples overflows ClockPID's internal
+    // remoteDuration*COUNTSPERSECOND math once the real gap between them is
+    // large enough (confirmed on the bench: dChiSq overflow for several
+    // resolves after a long holdover). Start this sample as a fresh
+    // reference point instead of carrying the stale history forward. See
+    // TODO.md, "GPS lock lost / PPS stopped".
+    ClockPID.reset_clock();
+  }
+
   DisciplineResult r = discipline.process(gps.ppsCounter(), gpstime);
   holdover.noteSampleReceived(millis());
   if(r.rejected) {

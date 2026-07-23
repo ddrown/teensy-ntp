@@ -203,7 +203,63 @@ void test_duplicate_gpstime_at_leap_stall_is_corrected() {
   TEST_ASSERT_FALSE(r.rejected);
   TEST_ASSERT_TRUE(r.leapSecondCorrected);
   TEST_ASSERT_EQUAL(stallSecond.v + 1, r.gpstime.v);
-  TEST_ASSERT_TRUE(pid.samples() > samplesBefore);
+  // Bootstrap (pid not yet full): the correction resets pid rather than
+  // appending to it (see test_leap_stall_resets_pid_buffer_during_bootstrap
+  // for a case where this is unambiguous), so the count here ends up equal
+  // to samplesBefore, not greater than it.
+  TEST_ASSERT_EQUAL(samplesBefore, pid.samples());
+}
+
+// Same correction, but with several *unrelated* real samples already
+// accumulated first, so "count ends up equal to before" can't be a
+// coincidence of starting from a single sample -- confirms this is a
+// genuine reset, discarding prior bootstrap history rather than appending.
+// This is the fix for the corruption found on the bench: an anomalous
+// leap-corrected sample (its offset is genuinely ~1s off, since nothing
+// steps localClock across the inserted second) landing unfiltered in
+// ClockPID's regression during bootstrap, since median-of-3 outlier
+// rejection isn't active yet at that point -- see TODO.md, "Leap second
+// handling".
+void test_leap_stall_resets_pid_buffer_during_bootstrap() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockDiscipline d(&clock, &pid);
+
+  d.process(1000, TaiNtpTime(500000000)); // clock set
+  for (int i = 1; i <= 4; i++) {
+    d.process(1000 + i * 1000000, TaiNtpTime(500000000 + i));
+  }
+  TEST_ASSERT_EQUAL(5, pid.samples());
+  TEST_ASSERT_FALSE(pid.full());
+
+  TaiNtpTime stallSecond(3692217637UL - 2);
+  d.process(2000000, stallSecond); // ordinary sample, becomes lastGpstime_
+  DisciplineResult r = d.process(2000000, stallSecond); // receiver stalls, repeats it
+
+  TEST_ASSERT_TRUE(r.leapSecondCorrected);
+  TEST_ASSERT_EQUAL(1, pid.samples());
+}
+
+// In steady state, the same correction must NOT reset ClockPID's buffer --
+// median-of-3 already filters the one anomalous sample from ever reaching
+// the regression (confirmed on the bench with a long pre-leap lead-in), so
+// resetting here would just needlessly throw away a perfectly good
+// accumulated frequency-estimate history for an ordinary leap second.
+void test_leap_stall_does_not_reset_pid_buffer_when_full() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockDiscipline d(&clock, &pid);
+
+  TaiNtpTime stallSecond(3692217637UL - 2);
+  d.process(1000, TaiNtpTime(stallSecond.v - 100)); // clock set, well before the leap
+  fillPidFull(pid);
+  TEST_ASSERT_TRUE(pid.full());
+
+  d.process(2000000, stallSecond); // ordinary sample, becomes lastGpstime_
+  DisciplineResult r = d.process(2000000, stallSecond); // receiver stalls, repeats it
+
+  TEST_ASSERT_TRUE(r.leapSecondCorrected);
+  TEST_ASSERT_TRUE(pid.full());
 }
 
 // A gpstime *less* than the previous one is never valid, even within a
@@ -235,6 +291,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_buffering_calls_do_not_touch_local_clock);
   RUN_TEST(test_duplicate_gpstime_outside_leap_window_is_rejected);
   RUN_TEST(test_duplicate_gpstime_at_leap_stall_is_corrected);
+  RUN_TEST(test_leap_stall_resets_pid_buffer_during_bootstrap);
+  RUN_TEST(test_leap_stall_does_not_reset_pid_buffer_when_full);
   RUN_TEST(test_backwards_gpstime_rejected_even_in_leap_window);
   return UNITY_END();
 }

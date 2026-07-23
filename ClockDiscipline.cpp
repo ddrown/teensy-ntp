@@ -65,6 +65,23 @@ DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
         gpstime = TaiNtpTime(gpstime.v + 1);
         r.gpstime = gpstime;
         r.leapSecondCorrected = true;
+        // This sample's offset is genuinely anomalous by about a second --
+        // nothing steps localClock_ across the inserted second, so it's a
+        // real (if expected) discontinuity, not drift. In steady state
+        // that's harmless: ClockPID's own median-of-3 upstream filters one
+        // outlier against its neighbors before it ever reaches the
+        // regression. During bootstrap there's no such protection (every
+        // sample resolves immediately), so the anomaly goes straight into
+        // ClockPID's 16-entry window and corrupts it for several resolves --
+        // confirmed on the bench (dChiSq overflow, ppb pinned to
+        // NTPClock::setPpb()'s clamp) with a short lead-in, absent with a
+        // long one. Reset just this narrower case rather than
+        // unconditionally, so an ordinary leap second during steady-state
+        // operation doesn't needlessly throw away a perfectly good
+        // regression history. See TODO.md, "Leap second handling".
+        if (!pid_->full()) {
+          pid_->reset_clock();
+        }
       } else {
         // A duplicate unrelated to a leap second -- a GPS glitch or a
         // repeated fix. Reject it the same way an out-of-tolerance lag
