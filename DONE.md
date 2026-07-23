@@ -1026,3 +1026,19 @@ embedded C with a reflash cycle between iterations.
       `WebServer` have no host-side tests, per `CLAUDE.md` -- not verified visually in a browser,
       only that the JSON/JS logic follows the same pattern the existing `gpstime`/`gpstimeHuman`
       fields already use).
+
+## Web UI: reorganize the flat stat list into a table
+
+- [x] **The flat `<p>`-per-line list of stats at the bottom of the status page was hard to scan.**
+      Reorganized `index_html.h` into five labeled tables instead -- Clock (NTP time, GPS reported
+      time, NTP/GPS offset, 1588 counter), Clock discipline/PID (drift estimate, ChiSq fit, PID
+      output), Holdover (in-holdover flag, dispersion estimate, elapsed), PPS/GPS timing
+      diagnostics (the four raw `millis()`/lag fields), and GPS reception (lock status, signal
+      counts, DOP). Also split the previously-combined "Strong/Weak/No signal" line into one row
+      per band, so each is independently labeled rather than packed into a single comma-separated
+      cell. A small `<style>` block (`border-collapse`, muted non-bold `<th>` labels, tight padding)
+      keeps the tables compact rather than defaulting to the browser's bordered/spaced table look.
+      All existing `span` element ids are unchanged, so `index_js.h` (which populates them by id via
+      `$.each(json, ...)`) needed no changes at all. Firmware compiles clean via `./compile.sh`; not
+      verified visually in a browser (`WebContent`/`WebServer` have no host-side tests, per
+      `CLAUDE.md`).

@@ -17,8 +17,6 @@ From a real PPS-disconnect holdover test (see `holdover.txt`), roughly in priori
       during the 2026-07-22 holdover bench session, not yet investigated.
 - [ ] Web UI: "Holdover elapsed" could show elapsed time since the last real PPS pulse instead (or
       in addition), so it lines up directly against "Reference time" for a reader comparing the two.
-- [ ] Web UI: the flat `<p>` list of stats at the bottom of the status page is hard to scan --
-      consider reorganizing into a table.
 
 ## MITM bench session follow-up (2026-07-23)
 
