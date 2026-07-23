@@ -65,7 +65,7 @@ const char *WebContent::jsonState() {
   int offset = snprintf(
     jsonBuffer,
     sizeof(jsonBuffer),
-    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld, \"inHoldover\": %d, \"holdoverDispersion\": %lu, \"holdoverElapsedMs\": %lu,",
+    "{\"ppsToGPS\": %lu, \"ppsMillis\": %lu, \"curMillis\": %lu, \"gpstime\": %lu, \"counterPPS\": %lu, \"offsetHuman\": %.9f, \"pidD\": %.9f, \"dChiSq\": %.9f, \"clockPpb\": %ld, \"inHoldover\": %d, \"holdoverDispersion\": %lu, \"holdoverElapsedMs\": %lu, \"gpsReportedTime\": %lu, \"haveGpsReportedTime\": %d,",
     ppsToGPS,
     ppsMillis,
     millis(),
@@ -77,7 +77,9 @@ const char *WebContent::jsonState() {
     clockPpb,
     inHoldover ? 1 : 0,
     holdoverDispersion,
-    holdoverElapsedMs
+    holdoverElapsedMs,
+    gpsReportedTime,
+    haveGpsReportedTime ? 1 : 0
   );
   if (offset >= total) {
     jsonBuffer[sizeof(jsonBuffer)-1] = '\0';
@@ -132,4 +134,9 @@ void WebContent::setHoldover(bool new_inHoldover, uint32_t new_holdoverDispersio
   inHoldover = new_inHoldover;
   holdoverDispersion = new_holdoverDispersion;
   holdoverElapsedMs = new_holdoverElapsedMs;
+}
+
+void WebContent::setGpsTime(TaiNtpTime new_gpstime) {
+  gpsReportedTime = taiToWireNtp(new_gpstime).v;
+  haveGpsReportedTime = true;
 }

@@ -19,13 +19,6 @@ From a real PPS-disconnect holdover test (see `holdover.txt`), roughly in priori
       in addition), so it lines up directly against "Reference time" for a reader comparing the two.
 - [ ] Web UI: the flat `<p>` list of stats at the bottom of the status page is hard to scan --
       consider reorganizing into a table.
-- [ ] Web UI: show the raw date/time actually coming from the GPS module's NMEA sentences
-      somewhere on the page, distinct from the served "NTP time" field (which now always reads
-      `localClock` -- see DONE.md, "WebContent gpstime freeze during holdover"). After a cold
-      start, a valid GPS-reported date is the second sign of life the module gives (after
-      satellites-in-view counts start climbing, before PPS/lock are fully established), so this is
-      a useful "is it making progress yet" signal an operator would otherwise have no way to see
-      from the web UI at all.
 
 ## MITM bench session follow-up (2026-07-23)
 

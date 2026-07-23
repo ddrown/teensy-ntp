@@ -141,7 +141,7 @@ void setup() {
 
   uint8_t mac[6];
   enet_getmac(mac);
-  Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
   netif_set_status_callback(netif_default, netif_status_callback);
   netif_set_link_callback(netif_default, link_status_callback);
@@ -276,6 +276,13 @@ static void gps_serial_poll() {
     if(gps.decode()) {
       DateTime now = gps.GPSnow();
       TaiNtpTime gpstime = now.ntptime();
+      // Always record what the GPS module itself just reported, regardless
+      // of whether the sanity check or ClockDiscipline below ends up
+      // trusting it -- a cold-start GPS module reporting *any* date (even
+      // an implausible pre-almanac one the check below rejects) is real
+      // evidence of progress the served "NTP time" field alone can't show.
+      // See TODO.md/DONE.md, "Web UI: show the raw GPS-reported date/time".
+      webcontent.setGpsTime(gpstime);
       // secondstime(), not ntptime(): ntptime() is wire-format-constrained
       // and wraps at 2036-02-07, which would eventually make this
       // comparison permanently reject every real GPS fix as "bad". See

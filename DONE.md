@@ -1000,3 +1000,29 @@ embedded C with a reflash cycle between iterations.
       Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`
       itself has no host-side tests -- it depends directly on lwIP/Teensy hardware APIs, per
       `CLAUDE.md`).
+
+## Web UI: show the raw GPS-reported date/time
+
+- [x] **Show the GPS module's own raw NMEA date/time on the status page, distinct from the served
+      "NTP time" field.** Raised while fixing the `gpstime` freeze above: once `WebContent` was
+      redesigned to always display `localClock`'s live time, there was no longer *any* field on the
+      page reflecting what the GPS module itself is actually reporting. After a cold start, a valid
+      GPS-reported date is the second sign of life the module gives (after satellite counts start
+      climbing, before PPS/lock are fully established) -- useful "is it making progress yet"
+      information an operator otherwise has no way to see from the web UI.
+      `WebContent` gained a new `setGpsTime(TaiNtpTime)` plus a `gpsReportedTime`/
+      `haveGpsReportedTime` pair (converted via `taiToWireNtp()`, same pattern the old `gpstime`
+      field used) -- deliberately its own separate flag-gated state, unlike the `localClock`
+      redesign above, since "no GPS sentence has committed yet" is exactly the condition this field
+      exists to show, not a freeze bug to design around. `teensy-ntp.ino`'s `gps_serial_poll()` calls
+      `webcontent.setGpsTime(gpstime)` right after `gps.decode()` succeeds, *before* the
+      `compileSecondsTime` sanity check and before `updateTime()`/`ClockDiscipline` -- so it reflects
+      whatever the GPS module just said even if that gets rejected downstream (an implausible
+      pre-almanac date at cold start is itself useful evidence the module is alive and parsing).
+      `jsonState()` adds both values to the JSON blob; `index_html.h` gained a new "GPS reported
+      time" `<p>` mirroring the existing "NTP time" raw+human layout; `index_js.h` renders an ISO
+      date when `haveGpsReportedTime` is set, `(none yet)` beforehand.
+      Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`/
+      `WebServer` have no host-side tests, per `CLAUDE.md` -- not verified visually in a browser,
+      only that the JSON/JS logic follows the same pattern the existing `gpstime`/`gpstimeHuman`
+      fields already use).

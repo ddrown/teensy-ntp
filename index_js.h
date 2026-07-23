@@ -184,6 +184,13 @@ function gotData(json) {
   const time = new Date((json.gpstime-2208988800)*1000);
   $("#gpstimeHuman").text(time.toISOString());
 
+  if(json.haveGpsReportedTime) {
+    const gpsReportedTime = new Date((json.gpsReportedTime-2208988800)*1000);
+    $("#gpsReportedTimeHuman").text(gpsReportedTime.toISOString());
+  } else {
+    $("#gpsReportedTimeHuman").text("none yet");
+  }
+
   offsetData.addRow([time, json.offsetHuman * 1000000000]);
   if(offsetData.getNumberOfRows() > 100) {
     offsetData.removeRow(0);
