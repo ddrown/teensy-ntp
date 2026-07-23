@@ -179,7 +179,7 @@ void updateTime(TaiNtpTime gpstime) {
   // again and pass the lag check. See TODO.md, "existing lag check is
   // wraparound-unsafe for long outages".
   uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
-  webcontent.setPPSData(ppsToGPS, gps.ppsMillis(), gpstime);
+  webcontent.setPPSData(ppsToGPS, gps.ppsMillis());
 
   uint32_t validatedLag;
   if(!elapsedWithin(gps.capturedAt(), gps.ppsMillis(), 950, &validatedLag)) { // allow 950ms between PPS and GPS message
@@ -229,7 +229,7 @@ void updateTime(TaiNtpTime gpstime) {
     server.setReftime(r.gpstime);
 
     double offsetHuman = r.offset / (double)4294967296.0;
-    webcontent.setLocalClock(r.pps, offsetHuman, ClockPID.d(), ClockPID.d_chi(), localClock.getPpb(), gpstime);
+    webcontent.setLocalClock(r.pps, offsetHuman, ClockPID.d(), ClockPID.d_chi(), localClock.getPpb());
     Serial.print(r.pps);
     Serial.print(" ");
     Serial.print(offsetHuman, 9);

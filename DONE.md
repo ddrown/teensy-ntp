@@ -962,3 +962,41 @@ embedded C with a reflash cycle between iterations.
       still rejected, confirming the fix doesn't turn the guard into a no-op). `test/Makefile`'s
       `test-ClockDiscipline` link rule gained `Elapsed.o`. All 112 host-side tests (11 binaries, 2
       new in this file) pass; firmware compiles clean via `./compile.sh`.
+
+## WebContent gpstime freeze during holdover
+
+- [x] **`WebContent`'s displayed "NTP time" field froze during a holdover episode.** The web UI's
+      `gpstime` (`index_html.h:18`'s "NTP time" field) was only ever updated from real GPS-derived
+      samples (`setPPSData()`/`setLocalClock()`), with a `haveGpsTime` flag gating a fallback to
+      `localClock`'s live time -- added earlier so the field wouldn't sit stuck at the NTP epoch
+      before the first-ever GPS fix across a power cycle. That flag latched permanently true on the
+      first real fix, so during a holdover episode (GPS/PPS gone silent after already having synced
+      once), `gpstime` froze at the last real sample instead of falling back live, freezing the web
+      UI graphs the same way they used to freeze at the epoch pre-fix. Identified in the 2026-07-22
+      holdover bench session (`holdover.txt`).
+      First fix: changed the fallback condition in `jsonState()` from `!haveGpsTime` to
+      `!haveGpsTime || inHoldover`, so the live-clock fallback also covers holdover. Compiled and
+      tested clean (112 host-side tests), but immediately raised the obvious follow-up question:
+      why maintain two conditions and a separate `gpstime`/`haveGpsTime` state at all, when the
+      field is labeled "NTP time" (not "GPS time") and is supposed to represent what the server is
+      currently serving?
+      **Superseded same day by a simpler redesign**: `WebContent` no longer tracks a GPS-derived
+      `gpstime` or `haveGpsTime` at all. `jsonState()` unconditionally reads `localClock.getTime()`
+      and converts via `taiToWireNtp()` -- `setPPSData()`/`setLocalClock()` dropped their now-unused
+      `TaiNtpTime new_gpstime` parameter entirely (call sites in `teensy-ntp.ino`'s `updateTime()`
+      updated to match). This removes the whole freeze bug class by construction rather than
+      patching each freeze scenario as it's found (there's no flag to latch, no window with nothing
+      to show), and as a side effect displays a smoothly, continuously advancing time instead of
+      jumping in `ClockDiscipline`'s ~48s steady-state resolve cadence. Tradeoff noted but accepted:
+      `gpstime` is no longer snapshotted at the same instant as `offsetHuman`/`pidD`/`dChiSq` (which
+      still only update once per resolve), so the displayed clock keeps ticking while those
+      diagnostic fields sit at their last resolved value -- not a correctness issue, since staleness
+      of the diagnostics is already visible separately via the holdover/dispersion fields.
+      This also resolves, as a side effect, half of the still-open MITM-session compounding-
+      visibility-gap item (see TODO.md): `WebContent::setPPSData()` no longer echoes an unaccepted
+      raw `gpstime` at all, since there's no `gpstime` field left to echo. The other half of that
+      item (`holdover.noteSampleReceived()` firing unconditionally regardless of accept/reject) is
+      unrelated to `WebContent` and remains open.
+      Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`
+      itself has no host-side tests -- it depends directly on lwIP/Teensy hardware APIs, per
+      `CLAUDE.md`).

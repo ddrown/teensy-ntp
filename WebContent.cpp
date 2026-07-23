@@ -46,13 +46,19 @@ void WebContent::begin() {
 }
 
 const char *WebContent::jsonState() {
-  uint32_t displayGpstime = gpstime;
-  if(!haveGpsTime) {
-    TaiNtpTime now;
-    uint32_t nowFractional;
-    if(localClock.getTime(&now, &nowFractional)) {
-      displayGpstime = taiToWireNtp(now).v;
-    }
+  // Always the live disciplined clock, not the last real GPS-derived sample --
+  // the displayed field is labeled "NTP time" (index_html.h), i.e. what this
+  // server is currently serving, not "when did GPS last report." Reading
+  // localClock directly here also means there's nothing to freeze: no
+  // GPS-fix-received flag to latch, no holdover special case, no window
+  // before the first fix where there's nothing to show yet -- localClock
+  // itself is always running (compile-time-seeded until the first real
+  // setTime()). See DONE.md, "WebContent gpstime freeze during holdover".
+  uint32_t displayGpstime = 0;
+  TaiNtpTime now;
+  uint32_t nowFractional;
+  if(localClock.getTime(&now, &nowFractional)) {
+    displayGpstime = taiToWireNtp(now).v;
   }
 
   int total = sizeof(jsonBuffer);
@@ -109,24 +115,17 @@ const char *WebContent::jsonState() {
   return jsonBuffer;
 }
 
-void WebContent::setPPSData(uint32_t new_ppsToGPS, uint32_t new_ppsMillis, TaiNtpTime new_gpstime) {
+void WebContent::setPPSData(uint32_t new_ppsToGPS, uint32_t new_ppsMillis) {
   ppsToGPS = new_ppsToGPS;
   ppsMillis = new_ppsMillis;
-  // gpstime is displayed to a human (index_js.h renders it as a UTC date) --
-  // convert from the internal TAI-like domain back to real wire format, or
-  // the displayed time drifts ~37s ahead of the real GPS time.
-  gpstime = taiToWireNtp(new_gpstime).v;
-  haveGpsTime = true;
 }
 
-void WebContent::setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, double new_pidD, double new_dChiSq, int32_t new_clockPpb, TaiNtpTime new_gpstime) {
+void WebContent::setLocalClock(uint32_t new_counterPPS, double new_offsetHuman, double new_pidD, double new_dChiSq, int32_t new_clockPpb) {
   counterPPS = new_counterPPS;
   offsetHuman = isnan(new_offsetHuman) ? 0 : new_offsetHuman;
   pidD = isnan(new_pidD) ? 0 : new_pidD;
   dChiSq = isnan(new_dChiSq) ? 0 : new_dChiSq;
   clockPpb = new_clockPpb;
-  gpstime = taiToWireNtp(new_gpstime).v;
-  haveGpsTime = true;
 }
 
 void WebContent::setHoldover(bool new_inHoldover, uint32_t new_holdoverDispersion, uint32_t new_holdoverElapsedMs) {
