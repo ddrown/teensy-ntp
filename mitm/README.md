@@ -36,14 +36,43 @@ Open-ended, not a fixture file -- see `rebase_relay.py`'s docstring. Power-cycle
 then:
 
 ```
-./rebase_relay.py --port /dev/ttyUSB0 --baud <whatever GPS_SERIAL is running at>
+./rebase_relay.py wrap --port /dev/ttyUSB0 --baud <whatever GPS_SERIAL is running at>
 ```
 
 Leave it running through the wrap for section 7b/7d, and for as long as needed afterward (up to
 ~4096s+) for section 7c's client-expiry soak.
 
+## Section 6c (leap-second handling), extended
+
+`generate.py 6c`'s fixture only gives ~2 seconds of margin around the leap instant. For more
+lead-in/observation time, or to test how the firmware handles a receiver reporting the leap second
+differently, use `rebase_relay.py leap` instead -- open-ended like `wrap`, power-cycle first:
+
+```
+./rebase_relay.py leap --port /dev/ttyUSB0 --baud <baud> \
+    --leap-at 2016-12-31T23:59:59 --leap-mode dup59 --lead-seconds 60
+```
+
+`--leap-mode`:
+- `dup59` -- repeats the last regular second an extra time before advancing (a receiver that
+  stalls instead of emitting `:60`). What `generate.py 6c` already tests; `L` expected.
+- `add60` -- sends a literal `HH:MM:60` sentence at the transition. `DateTime`'s own leap-second
+  arithmetic handles this natively; no `D`/`L` expected. Untested against real hardware until this
+  mode existed.
+- `dup00` -- repeats the second *after* the leap instead of the one before.
+  `leapSecondStallSecond()` only recognizes a duplicate of the second *before* a compiled
+  `LeapSeconds.cpp` entry, so this exercises the plain duplicate-rejection path (`D`), not leap
+  recognition.
+
+`--leap-at` must be exactly one second before a real `LeapSeconds.cpp` table entry for `dup59`/
+`add60` to mean anything to the firmware -- currently only `2016-12-31T23:59:59` (effective
+`2017-01-01`) exists in the compiled table. Note `gps_serial_poll()`'s `compileSecondsTime` sanity
+guard rejects any GPS date older than the firmware's own build time, so testing against that real
+date needs a firmware build with `compileTime` overridden to something before it (see the
+"leap-second-stall correction never steps `localClock`" TODO.md item for how that was done).
+
 ## `--sentence-type`
 
-Both `generate.py` and `rebase_relay.py` take `--sentence-type zda|rmc` (default `zda`) -- match
+`generate.py` and `rebase_relay.py` take `--sentence-type zda|rmc` (default `zda`) -- match
 whichever this GPS module actually emits (`GPS.cpp`'s own detection is runtime-based, not a
 compile-time choice, so the fixture needs to match it too).

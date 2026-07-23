@@ -75,3 +75,36 @@ def fix_group(dt: datetime, sentence_type: str = "zda") -> list:
         return [rmc(dt), gga(dt)]
     else:
         raise ValueError(f"unknown sentence_type {sentence_type!r}")
+
+
+def zda_leap_second(dt_before_leap: datetime, talker: str = "GP") -> str:
+    """A literal HH:MM:60 ZDA sentence for the inserted leap second right
+    after `dt_before_leap` (e.g. pass 23:59:59 to get a 23:59:60 sentence,
+    still dated the *old* day). Python's datetime can't represent second=60
+    itself, so this is built as a string rather than via strftime()."""
+    time_field = dt_before_leap.strftime("%H%M") + "60.00"
+    return _sentence(talker + "ZDA", [
+        time_field, f"{dt_before_leap.day:02d}", f"{dt_before_leap.month:02d}",
+        f"{dt_before_leap.year:04d}", "00", "00",
+    ])
+
+
+def rmc_leap_second(dt_before_leap: datetime, talker: str = "GP") -> str:
+    """As zda_leap_second(), for RMC."""
+    time_field = dt_before_leap.strftime("%H%M") + "60.00"
+    date_field = dt_before_leap.strftime("%d%m%y")
+    return _sentence(talker + "RMC", [
+        time_field, "A", "5107.0017737", "N", "11402.3291611", "W",
+        "0.080", "323.3", date_field, "0.0", "E", "A",
+    ])
+
+
+def leap_second_group(dt_before_leap: datetime, sentence_type: str = "zda") -> list:
+    """The sentence(s) for a literal HH:MM:60 leap second right after
+    dt_before_leap (e.g. pass 23:59:59 to get a 23:59:60 fix cycle)."""
+    if sentence_type == "zda":
+        return [zda_leap_second(dt_before_leap)]
+    elif sentence_type == "rmc":
+        return [rmc_leap_second(dt_before_leap), gga(dt_before_leap)]
+    else:
+        raise ValueError(f"unknown sentence_type {sentence_type!r}")

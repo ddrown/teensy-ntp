@@ -818,3 +818,52 @@ writing.
       doesn't touch not-yet-configured PPS capture hardware). Prints the detected rate over
       serial (`"GPS baud: <n>"`). `README.md`'s `settings.h` options table and the
       no-satellites troubleshooting bullet updated to match.
+
+## NMEA MITM tooling (for TESTPLAN.md sections 6/7)
+
+Built and run successfully against real hardware (see `data/mitm` and the "MITM bench session
+findings" TODO.md entry for what it found). A USB-UART adapter only gives one serial connection,
+so a live two-port relay between the real GPS module and the Teensy isn't practical -- instead,
+the GPS module's PPS output stays wired to the Teensy as normal, its NMEA TX line is disconnected,
+and `mitm/`'s scripts drive the Teensy's `GPS_SERIAL` input directly over a single USB-UART with
+entirely pre-generated, fully fabricated NMEA sentences. Real GPS PPS edges land almost exactly on
+the UTC second boundary, so timing sends off this machine's own wall clock is plenty accurate for
+the 950ms lag tolerance without needing to observe the real PPS signal. Chosen over a second-MCU
+relay (Teensy/STM32/ESP32 with two UARTs): the actual hard part is the scenario logic (date
+arithmetic, multi-fix sequencing, rebasing a feed), much faster to write/debug in Python than as
+embedded C with a reflash cycle between iterations.
+
+- [x] **`mitm/nmea.py`**: ZDA/RMC/GGA sentence builders with a checksum function (XOR of every
+      byte between `$` and `*`) cross-checked independently against `GPS.cpp`'s own worked
+      example (`$GPZDA,174304.36,24,11,2015,00,00*66`) rather than just trusting its own logic.
+- [x] **`mitm/generate.py`**: builds finite fixture files for 6a (spurious duplicate `D`), 6b
+      (backwards `D`), and 6c (leap-second stall `L`) as groups of sentences separated by `---`
+      markers, with per-scenario setup reminders embedded as comments (6a/6b need an
+      already-synced device; 6c needs a power-cycle first). `--sentence-type zda|rmc` matches
+      whichever the module in use actually emits, since `GPS.cpp`'s own detection is runtime-based.
+- [x] **`mitm/player.py`**: replays a fixture file at one group per real second, at a configurable
+      millisecond offset from the top of the second -- tested standalone (no hardware), wakes
+      consistently at the target offset with no drift across iterations.
+- [x] **`mitm/rebase_relay.py`**: section 7a/7c (Y2036 wraparound) can't be a finite fixture --
+      it needs to keep relaying through the wrap and potentially the whole ~4096s section-7c
+      client-expiry soak afterward -- so this computes and sends a live rebased sentence every
+      second indefinitely, seeded from a fixed offset chosen at startup.
+      Given a `wrap`/`leap` subcommand split 2026-07-23: the 6c retest (see the "MITM bench
+      session findings" TODO.md entry) showed `generate.py 6c`'s finite fixture gives only ~2s of
+      margin around the leap instant, not enough to comfortably observe recovery. `leap` mode
+      generalizes it -- open-ended like `wrap`, with a configurable lead-in, and three ways a
+      real receiver might report the same leap second (`--leap-mode dup59/add60/dup00`): repeat
+      the last regular second (what 6c already covers), send a literal `HH:MM:60` sentence
+      (`DateTime`'s own leap arithmetic, untested against real hardware before this), or repeat
+      the second *after* the leap instead of before (an ordinary duplicate, not leap-recognized,
+      since `leapSecondStallSecond()` only matches a duplicate of the second *before* a compiled
+      table entry). `nmea.py` gained `zda_leap_second()`/`rmc_leap_second()`/`leap_second_group()`
+      for the literal-`:60` case, built from strings since Python's `datetime` can't represent
+      second=60 at all. The sequencing logic (`leap_sequence()`) is a generator, tested standalone
+      for all three modes without needing hardware.
+- [x] Uses a `venv` under `mitm/` (gitignored, along with generated `fixtures/` and
+      `__pycache__/`) rather than installing `pyserial` globally.
+- [x] Ran all four scenarios (6a/6b/6c/7) against real hardware -- see the "MITM bench session
+      findings" TODO.md entry for what turned up (a real Y2036 `ClockDiscipline` wraparound bug,
+      6c's fixture being fundamentally blocked by the `compileSecondsTime` guard on current-era
+      firmware, and new evidence on the already-tracked `ClockPID` buffer issue).
