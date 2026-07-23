@@ -225,14 +225,20 @@ void test_leap_stall_resets_pid_buffer_during_bootstrap() {
   ClockPID_c pid;
   ClockDiscipline d(&clock, &pid);
 
-  d.process(1000, TaiNtpTime(500000000)); // clock set
+  // Lead-in samples must land within the monotonicity guard's forward-gap
+  // window (ClockDiscipline.cpp's elapsedWithin() check) of stallSecond
+  // rather than at an arbitrary unrelated epoch -- a gap of more than half
+  // of 2^32 seconds is indistinguishable from a backwards/wrapped jump and
+  // gets rejected, same as it would on real hardware.
+  TaiNtpTime stallSecond(3692217637UL - 2);
+  uint32_t start = stallSecond.v - 5;
+  d.process(1000, TaiNtpTime(start)); // clock set
   for (int i = 1; i <= 4; i++) {
-    d.process(1000 + i * 1000000, TaiNtpTime(500000000 + i));
+    d.process(1000 + i * 1000000, TaiNtpTime(start + i));
   }
   TEST_ASSERT_EQUAL(5, pid.samples());
   TEST_ASSERT_FALSE(pid.full());
 
-  TaiNtpTime stallSecond(3692217637UL - 2);
   d.process(2000000, stallSecond); // ordinary sample, becomes lastGpstime_
   DisciplineResult r = d.process(2000000, stallSecond); // receiver stalls, repeats it
 
@@ -280,6 +286,39 @@ void test_backwards_gpstime_rejected_even_in_leap_window() {
   TEST_ASSERT_FALSE(r.leapSecondCorrected);
 }
 
+// The Y2036 wraparound bug: a real sample right after TaiNtpTime.v wraps
+// (e.g. 0 or 1) must not be misread as "backwards" just because its raw
+// uint32_t value is numerically smaller than the pre-wrap lastGpstime_. See
+// TODO.md, "Critical, will affect every deployed unit in 2036".
+void test_forward_sample_accepted_across_y2036_wraparound() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockDiscipline d(&clock, &pid);
+
+  d.process(1000, TaiNtpTime(0xFFFFFFFEUL)); // clock set, 2s before the wrap
+  DisciplineResult r1 = d.process(2000, TaiNtpTime(0xFFFFFFFFUL)); // 1s before
+  DisciplineResult r2 = d.process(3000, TaiNtpTime(0)); // wraps to 0
+  DisciplineResult r3 = d.process(4000, TaiNtpTime(1)); // ordinary sample past the wrap
+
+  TEST_ASSERT_FALSE(r1.rejected);
+  TEST_ASSERT_FALSE(r2.rejected);
+  TEST_ASSERT_FALSE(r3.rejected);
+}
+
+// A gap of more than half of 2^32 seconds (~68 years) is indistinguishable
+// from a wrapped-around backwards jump and must still be rejected -- the
+// wraparound fix must not turn the monotonicity guard into a no-op.
+void test_implausibly_large_forward_gap_still_rejected() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockDiscipline d(&clock, &pid);
+
+  d.process(1000, TaiNtpTime(0)); // clock set
+  DisciplineResult r = d.process(2000, TaiNtpTime(0x80000000UL)); // exactly half the range forward
+
+  TEST_ASSERT_TRUE(r.rejected);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_first_sample_sets_clock);
@@ -294,5 +333,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_leap_stall_resets_pid_buffer_during_bootstrap);
   RUN_TEST(test_leap_stall_does_not_reset_pid_buffer_when_full);
   RUN_TEST(test_backwards_gpstime_rejected_even_in_leap_window);
+  RUN_TEST(test_forward_sample_accepted_across_y2036_wraparound);
+  RUN_TEST(test_implausibly_large_forward_gap_still_rejected);
   return UNITY_END();
 }

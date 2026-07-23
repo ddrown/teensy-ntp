@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "ClockDiscipline.h"
+#include "Elapsed.h"
 
 uint8_t ClockDiscipline::median(int64_t one, int64_t two, int64_t three) {
   if(one > two) {
@@ -45,7 +46,19 @@ DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
   r.gpstime = gpstime;
 
   if(settime_) {
-    if (gpstime.v < lastGpstime_.v) {
+    // Wraparound-safe forward gap, not a bare `<` -- TaiNtpTime.v is still a
+    // plain wrapping uint32_t (see NtpTimestamp.h), so it wraps at the same
+    // 2036-02-07 06:28:16 UTC instant as wire format, at which point a bare
+    // `gpstime.v < lastGpstime_.v` would misread every subsequent real
+    // sample as "backwards" forever (lastGpstime_ never advances on a
+    // rejected sample). 0x7fffffff (~68 years) as the window is deliberately
+    // enormous -- large enough that no legitimate gap between consecutive
+    // accepted samples (even a very long holdover outage) is ever mistaken
+    // for a backwards jump, while still correctly classifying a genuine
+    // backwards jump (which wraps to a huge gap here) as implausible. See
+    // TODO.md, "Critical, will affect every deployed unit in 2036".
+    uint32_t forwardGap;
+    if (!elapsedWithin(gpstime.v, lastGpstime_.v, 0x7fffffff, &forwardGap)) {
       // Backwards jump -- never valid, leap second or not. A real leap
       // second only ever produces a *stall* (the same gpstime again), never
       // something that looks like it went backwards -- this is the "GPS
@@ -55,7 +68,7 @@ DisciplineResult ClockDiscipline::process(uint32_t pps, TaiNtpTime gpstime) {
       r.rejected = true;
       return r;
     }
-    if (gpstime.v == lastGpstime_.v) {
+    if (forwardGap == 0) {
       LeapSecondType stallType;
       if (leapSecondStallSecond(taiToWireNtp(gpstime), &stallType)) {
         // The GPS receiver stalled on the last regular second instead of
