@@ -53,6 +53,13 @@ int8_t leapSecondOffsetAt(WireNtpTime ntpTime) {
   return 0;
 }
 
+// Deliberately a one-day window, not "last minute of the current month" --
+// RFC 5905 is ambiguous between the two (it mentions both), but is supposed
+// to be compatible with NTPv3, which specifies "day". Real GPS-disciplined
+// stratum-1 servers follow the day reading in practice too (documented
+// operator reports describe LI going up exactly 24h before the event), so
+// this isn't a compatibility gap to widen later -- it matches how servers
+// actually behave, not just one arguable reading of the spec text.
 bool leapSecondPendingToday(WireNtpTime ntpTime, LeapSecondType *type) {
   for (int i = leapSecondsCount - 1; i >= 0; i--) {
     uint32_t dayStart = leapSeconds[i].effectiveNtpTime.v - 86400;

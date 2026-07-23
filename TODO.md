@@ -79,26 +79,40 @@ roughly in priority order.
       a GPS date older than the firmware's own build time, which the fixture's 2016/2017 dates
       always are. Retested with a temporary build (`compileTime` seeded from a hardcoded 2016-01-01
       instead of `__DATE__`) to get past the guard -- see the next item for what that run found.
-- [ ] **Leap-second-stall correction never steps `localClock` itself, leaving it permanently 1s
-      behind after every real leap second.** Confirmed via the 6c retest above: the stall
-      correction (`ClockDiscipline.cpp:60-67`) fired correctly (`L 3692217636`, printed as
-      designed) and the very next sample resolved clean (`offsetHuman=0.00000992`, `dChiSq=0.0`,
-      `ppb=10922`). But the *following* two samples both showed `offsetHuman` at almost exactly
-      `1.0` (`0.999998037`, then `0.999375392`) -- `offsetHuman = r.offset / 4294967296.0`
-      (`teensy-ntp.ino:221`), so an offset of ~1.0 means `NTPClock::getOffset()`'s
-      `diffS = ntpTimestamp.v - localS.v` (`NTPClock.cpp:47`) computed almost exactly `1`, i.e.
-      `localClock` itself is a full second behind what the (correctly leap-corrected) GPS
-      timestamp says. Root cause: the stall correction only adjusts the `gpstime` *value* used for
-      `ClockDiscipline`'s bookkeeping and `NTPServer`'s reftime -- it never tells `localClock` to
-      step its own internally-tracked time forward by that same second, and `localClock` otherwise
-      only ever gets frequency corrections (`setPpb()`) after its initial `setTime()`, which can't
-      and shouldn't try to absorb a discrete known 1-second event. The resulting persistent 1s
-      "offset" then poisons `ClockPID`'s regression the same way the buffer-never-reset issue above
-      does -- Theil-Sen sees an apparent enormous frequency error between pre-leap (offset≈0) and
-      post-leap (offset≈1s) samples sharing the same window, computing a wild slope that
-      `NTPClock::setPpb()`'s `±500000` ppm safety clamp (`NTPClock.cpp:57`) caps -- explaining the
-      exact `ppb = 500000` seen here *and* in the 6a/6b runs (the clamp itself is working correctly;
-      it's just capping a genuinely-wrong upstream slope). Fix: when `r.leapSecondCorrected` is
-      true, also step `localClock`'s internal time forward by one second (needs a small new
-      "step by N seconds" primitive on `NTPClock`, since `setRefTime()` only affects reporting, not
-      the actual serving clock's tracked time).
+- [ ] **A real leap second produces one sample with a genuinely anomalous offset, which only
+      corrupts anything if it lands during `ClockPID`'s bootstrap phase (no reboot-timing luck
+      needed in the other case).** First observed via the 6c retest with a 60s lead-in: the stall
+      correction (`ClockDiscipline.cpp:60-67`) fired correctly (`L 3692217636`) and the very next
+      sample resolved clean, but the *following* two samples both showed `offsetHuman` at almost
+      exactly `1.0` (`teensy-ntp.ino:221`), `dChiSq=ovf`, and `ppb` clamped to `NTPClock.cpp:57`'s
+      `±500000` safety limit -- matching the same corruption signature as the buffer-never-reset
+      issue above. **Revised after a follow-up retest with a 180s lead-in** (long enough to clear
+      `ClockPID`'s 16-sample bootstrap before the leap instant): every sample, including the very
+      first one after the `L` correction, stayed completely clean (tiny offsets, `dChiSq` back in
+      its normal 36-70 range, `ppb` ~9958-9990, no clamping) -- ruling out "`localClock` is
+      permanently behind after every leap second" as the mechanism, since that would corrupt every
+      subsequent sample forever, not just transiently.
+      Actual mechanism, traced through `ClockDiscipline::process()`: the leap-corrected sample's
+      offset genuinely is anomalous for that one instant (nothing steps `localClock`'s own
+      internal time across the inserted second -- it only ever gets frequency corrections via
+      `setPpb()` after its initial `setTime()`, which can't absorb a discrete 1s event). Whether
+      that one anomalous sample reaches `ClockPID`'s regression depends entirely on whether
+      median-of-3 outlier rejection is active: during bootstrap, `pid_->full()` is false, so
+      `ClockDiscipline` always takes the immediate-resolve branch with `median_index = wait_` --
+      the actual `median(samples_[0..2])` call only happens when `wait_ == 0`, which bootstrap
+      never reaches (`wait_` gets reset to `DISCIPLINE_WAIT_COUNT-1` every call in that regime), so
+      the anomalous sample goes straight into the regression unfiltered. In steady state (buffer
+      already full, as in the 180s-lead-in run), the same anomalous sample gets compared against
+      two normal neighbors, loses the median comparison, and never reaches `ClockPID` at all --
+      explaining the clean result.
+      Practical implication: this is really a narrow window, not "every leap second" -- only a
+      device that reboots (or otherwise resets `ClockPID`'s buffer) shortly before a real leap
+      second would hit it; a device that's been running normally for even a few minutes beforehand
+      should be unaffected, consistent with the 180s-lead-in result. Two independent fixes worth
+      considering: make `ClockDiscipline` explicitly step `localClock` forward across a leap
+      correction so no anomalous sample is generated in the first place (more robust than relying
+      on median-of-3 timing luck), and/or extend outlier protection to cover the bootstrap phase
+      too.
+      Also confirmed working correctly in both retests: the NTP Leap Indicator field -- `+1s (64)`
+      correctly announced before the transition, cleanly clearing to `(0)` afterward, with
+      continuously correct served timestamps throughout.
