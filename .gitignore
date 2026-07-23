@@ -13,3 +13,6 @@ test/test-LeapSeconds
 test/test-NTPClients
 test/test-NTPResponseFields
 build/
+mitm/venv/
+mitm/fixtures/
+__pycache__/
