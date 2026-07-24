@@ -15,6 +15,10 @@
 #include "platform-clock.h"
 #include "WebServer.h"
 #include "WebContent.h"
+#include "Hostname.h"
+#include "BootloaderMagic.h"
+#include "GpsBaud.h"
+#include "UpdateTimeCore.h"
 
 // see the settings file for common settings
 #include "settings.h"
@@ -80,49 +84,6 @@ void wait_for_serial() {
   }
 }
 
-static const char *hostnameForMac(const uint8_t *mac) {
-  for(size_t i = 0; i < sizeof(hostnameTable)/sizeof(hostnameTable[0]); i++) {
-    if(memcmp(mac, hostnameTable[i].mac, sizeof(hostnameTable[i].mac)) == 0) {
-      return hostnameTable[i].hostname;
-    }
-  }
-  static char fallback[sizeof("teensy-ffffff")];
-  snprintf(fallback, sizeof(fallback), "teensy-%02x%02x%02x", mac[3], mac[4], mac[5]);
-  return fallback;
-}
-
-// long enough to reliably catch at least one full NMEA burst (GPS modules
-// typically emit one per second, right after each PPS pulse) even right at
-// the edge of a probe window's start.
-#define GPS_BAUD_PROBE_MS 2000
-
-// tries each of settings.h's gpsBaudCandidates[] in turn, reusing GPS.cpp's
-// own checksum verification (via gps.decode()) rather than reimplementing
-// it -- the first candidate that yields a complete, checksum-valid ZDA/RMC
-// sentence wins. Falls back to the first candidate if none do, so a module
-// that's just slow to start (vs. actually misconfigured) still gets a
-// sensible rate to keep listening at.
-static uint32_t detectGpsBaud() {
-  const size_t numCandidates = sizeof(gpsBaudCandidates)/sizeof(gpsBaudCandidates[0]);
-  for(size_t i = 0; i < numCandidates; i++) {
-    uint32_t candidate = gpsBaudCandidates[i];
-    GPS_SERIAL.begin(candidate);
-    while(GPS_SERIAL.available()) { // drop whatever's buffered from the previous rate
-      GPS_SERIAL.read();
-    }
-    elapsedMillis probeElapsed;
-    while(probeElapsed < GPS_BAUD_PROBE_MS) {
-      if(GPS_SERIAL.available() && gps.decode()) {
-        return candidate;
-      }
-    }
-  }
-
-  uint32_t fallback = gpsBaudCandidates[0];
-  GPS_SERIAL.begin(fallback);
-  return fallback;
-}
-
 void setup() {
   Serial.begin(115200);
 
@@ -133,7 +94,7 @@ void setup() {
 
   DateTime compile = DateTime(__DATE__, __TIME__);
 
-  uint32_t gpsBaud = detectGpsBaud();
+  uint32_t gpsBaud = detectGpsBaud(GPS_SERIAL, gps, gpsBaudCandidates, sizeof(gpsBaudCandidates)/sizeof(gpsBaudCandidates[0]));
   Serial.print("GPS baud: ");
   Serial.println(gpsBaud);
 
@@ -168,23 +129,18 @@ void setup() {
 }
 
 void updateTime(TaiNtpTime gpstime) {
-  if(gps.ppsMillis() == 0) {
+  UpdateTimeOutcome outcome = updateTimeCore(discipline, holdover, ClockPID,
+                                              gps.ppsCounter(), gpstime,
+                                              gps.capturedAt(), gps.ppsMillis(), millis());
+  if(outcome.noPpsYet) {
     return;
   }
 
-  // Raw subtraction for display only (webcontent's "PPS to GPS" field) --
-  // if PPS has actually stopped for a very long time this can itself wrap,
-  // but that's cosmetic; the accept/reject decision below must not rely on
-  // it, since a wrapped-around gap could otherwise silently look "fresh"
-  // again and pass the lag check. See TODO.md, "existing lag check is
-  // wraparound-unsafe for long outages".
-  uint32_t ppsToGPS = gps.capturedAt() - gps.ppsMillis();
-  webcontent.setPPSData(ppsToGPS, gps.ppsMillis());
+  webcontent.setPPSData(outcome.ppsToGPS, gps.ppsMillis());
 
-  uint32_t validatedLag;
-  if(!elapsedWithin(gps.capturedAt(), gps.ppsMillis(), 950, &validatedLag)) { // allow 950ms between PPS and GPS message
+  if(outcome.lagRejected) {
     Serial.print("LAG ");
-    Serial.print(ppsToGPS);
+    Serial.print(outcome.ppsToGPS);
     Serial.print(" ");
     Serial.print(gps.ppsMillis());
     Serial.print(" ");
@@ -192,19 +148,7 @@ void updateTime(TaiNtpTime gpstime) {
     return;
   }
 
-  if(holdover.inHoldover()) {
-    // The buffered history predates however long the outage was; mixing it
-    // with fresh post-recovery samples overflows ClockPID's internal
-    // remoteDuration*COUNTSPERSECOND math once the real gap between them is
-    // large enough (confirmed on the bench: dChiSq overflow for several
-    // resolves after a long holdover). Start this sample as a fresh
-    // reference point instead of carrying the stale history forward. See
-    // TODO.md, "GPS lock lost / PPS stopped".
-    ClockPID.reset_clock();
-  }
-
-  DisciplineResult r = discipline.process(gps.ppsCounter(), gpstime);
-  holdover.noteSampleReceived(millis());
+  DisciplineResult r = outcome.discipline;
   if(r.rejected) {
     // Duplicate (unrelated to a leap second) or backwards GPS timestamp --
     // see TODO.md, "Leap second handling".
@@ -299,20 +243,13 @@ static void gps_serial_poll() {
 }
 
 // useful when using teensy_loader_cli
+static BootloaderMagic bootloaderMagic;
 static void bootloader_poll() {
-  static const char magic[] = "rebootnow";
-  static size_t matched = 0;
   if(Serial.available()) {
-    char c = Serial.read();
-    if(c == magic[matched]) {
-      matched++;
-      if(magic[matched] == '\0') {
-        Serial.println("rebooting to bootloader");
-        delay(10);
-        asm("bkpt #251"); // run bootloader
-      }
-    } else {
-      matched = (c == magic[0]) ? 1 : 0;
+    if(bootloaderMagic.feed(Serial.read())) {
+      Serial.println("rebooting to bootloader");
+      delay(10);
+      asm("bkpt #251"); // run bootloader
     }
   }
 }

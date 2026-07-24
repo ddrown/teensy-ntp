@@ -37,6 +37,10 @@ test-LeapSeconds: test-LeapSeconds.o LeapSeconds.o DateTime.o $(LIBS)
 test-InputCapture: test-InputCapture.o InputCapture.o $(LIBS)
 test-NTPClients: test-NTPClients.o NTPClients.o NTPClock.o LeapSeconds.o Elapsed.o $(LIBS)
 test-NTPResponseFields: test-NTPResponseFields.o NTPResponseFields.o LeapSeconds.o $(LIBS)
+test-Hostname: test-Hostname.o Hostname.o $(LIBS)
+test-BootloaderMagic: test-BootloaderMagic.o BootloaderMagic.o $(LIBS)
+test-GpsBaud: test-GpsBaud.o DateTime.o LeapSeconds.o GPS.o $(LIBS)
+test-UpdateTimeCore: test-UpdateTimeCore.o UpdateTimeCore.o ClockDiscipline.o ClockHoldover.o ClockPID.o NTPClock.o LeapSeconds.o Elapsed.o $(LIBS)
 
 $(BINS):
 	g++ $(CXX_FLAGS) -o $@ $^

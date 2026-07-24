@@ -12,6 +12,10 @@ test/test-ClockHoldover
 test/test-LeapSeconds
 test/test-NTPClients
 test/test-NTPResponseFields
+test/test-Hostname
+test/test-BootloaderMagic
+test/test-GpsBaud
+test/test-UpdateTimeCore
 build/
 mitm/venv/
 mitm/fixtures/
