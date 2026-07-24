@@ -1000,6 +1000,18 @@ embedded C with a reflash cycle between iterations.
       Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`
       itself has no host-side tests -- it depends directly on lwIP/Teensy hardware APIs, per
       `CLAUDE.md`).
+      Also resolved this same GPS satellite strong/weak signal counts sometimes appearing to jump
+      abruptly (e.g. 5→39) -- observed during the 2026-07-22 holdover bench session, never
+      root-caused at the time. Not reproduced since this fix (reported 2026-07-23); the working
+      theory is that it was a display artifact of the old frozen `gpstime`, not a real GPS/firmware
+      issue -- the satellite counts (`strongSignals`/`weakSignals`/`noSignals`) come from
+      `GPSDateTime`'s own live parsing state, independent of `WebContent`'s `gpstime` field, but with
+      `gpstime` frozen the chart's x-axis (`gotData()`'s `time` value, `index_js.h`) stayed pinned to
+      the same instant across several polls; once it finally advanced, whatever satellite count
+      changes had accumulated over that stall would appear to land all at once as a single large
+      jump instead of smoothly over the intervening polls. Noted as a working theory, not confirmed
+      by direct reproduction of the original anomaly -- the fix that resolved it was a side effect
+      of unrelated work, not a change targeted at this specific report.
 
 ## Web UI: show the raw GPS-reported date/time
 
