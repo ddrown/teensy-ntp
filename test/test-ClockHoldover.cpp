@@ -23,7 +23,7 @@ void test_stays_fresh_within_stale_window() {
   ClockPID_c pid;
   ClockHoldover h(&clock, &pid);
 
-  h.noteSampleReceived(1000);
+  h.noteSampleReceived(1000, TaiNtpTime(500000000));
 
   HoldoverStatus hs = h.poll(1000 + HOLDOVER_STALE_MS);
   TEST_ASSERT_FALSE(hs.inHoldover);
@@ -51,7 +51,7 @@ void test_enters_holdover_and_drives_d_only_ppb() {
   // full P+I+D, otherwise the assertion below can't catch a regression.
   TEST_ASSERT_NOT_EQUAL(fullPidPpb, dOnlyPpb);
 
-  h.noteSampleReceived(1000);
+  h.noteSampleReceived(1000, TaiNtpTime(500000000));
   HoldoverStatus hs = h.poll(1000 + HOLDOVER_STALE_MS + 1);
 
   TEST_ASSERT_TRUE(hs.inHoldover);
@@ -67,10 +67,10 @@ void test_dispersion_grows_incrementally_while_in_holdover() {
   ClockHoldover h(&clock, &pid);
 
   h.noteDispersion(2000);
-  h.noteSampleReceived(0);
+  h.noteSampleReceived(0, TaiNtpTime(500000000));
 
   uint32_t now = 0;
-  HoldoverStatus prev = {false, 0, 0};
+  HoldoverStatus prev = {};
   bool sawGrowth = false;
   for (int i = 0; i < 20; i++) {
     now += 1000; // poll roughly once/sec, matching slower_poll()'s cadence
@@ -102,7 +102,7 @@ void test_large_poll_gap_does_not_inflate_dispersion() {
   ClockHoldover h(&clock, &pid);
 
   h.noteDispersion(2000);
-  h.noteSampleReceived(0);
+  h.noteSampleReceived(0, TaiNtpTime(500000000));
 
   uint32_t now = HOLDOVER_STALE_MS + 1000;
   HoldoverStatus before = h.poll(now);
@@ -115,6 +115,28 @@ void test_large_poll_gap_does_not_inflate_dispersion() {
   TEST_ASSERT_EQUAL(before.dispersion, after.dispersion);
 }
 
+// holdoverStartTime is a fixed UTC timestamp (the last accepted sample's own
+// time, plus the HOLDOVER_STALE_MS grace window), not a live-ticking
+// duration -- it must read the same value across repeated polls within the
+// same holdover episode, and it must correctly account for the grace window
+// rather than just echoing the last accepted sample's own timestamp.
+void test_holdover_start_time_is_last_good_sample_plus_stale_window() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockHoldover h(&clock, &pid);
+
+  h.noteSampleReceived(1000, TaiNtpTime(500000000));
+
+  HoldoverStatus first = h.poll(1000 + HOLDOVER_STALE_MS + 1000);
+  TEST_ASSERT_TRUE(first.inHoldover);
+  TEST_ASSERT_EQUAL(500000000 + HOLDOVER_STALE_MS / 1000, first.holdoverStartTime.v);
+
+  // Still the same value on a later poll within the same episode.
+  HoldoverStatus second = h.poll(1000 + HOLDOVER_STALE_MS + 5000);
+  TEST_ASSERT_TRUE(second.inHoldover);
+  TEST_ASSERT_EQUAL(first.holdoverStartTime.v, second.holdoverStartTime.v);
+}
+
 // A fresh sample arriving mid-holdover must fully reset holdover state:
 // leaving holdover immediately, and if it goes stale again later, growing
 // from the newly-recorded dispersion rather than continuing where the
@@ -125,10 +147,10 @@ void test_fresh_sample_resets_holdover_state() {
   ClockHoldover h(&clock, &pid);
 
   h.noteDispersion(2000);
-  h.noteSampleReceived(0);
+  h.noteSampleReceived(0, TaiNtpTime(500000000));
 
   uint32_t now = 0;
-  HoldoverStatus stale = {false, 0, 0};
+  HoldoverStatus stale = {};
   for (int i = 0; i < 20; i++) {
     now += 1000;
     stale = h.poll(now);
@@ -139,7 +161,7 @@ void test_fresh_sample_resets_holdover_state() {
 
   // GPS resumes: leaves holdover immediately and records a new baseline.
   now += 100;
-  h.noteSampleReceived(now);
+  h.noteSampleReceived(now, TaiNtpTime(600000000));
   h.noteDispersion(3000);
   HoldoverStatus fresh = h.poll(now);
   TEST_ASSERT_FALSE(fresh.inHoldover);
@@ -148,8 +170,9 @@ void test_fresh_sample_resets_holdover_state() {
   // as soon as it does). If the duration accumulator had *not* been reset,
   // this would inherit ~16s worth of holdover duration from the episode
   // above and grow well past the fresh baseline; it should instead grow by
-  // only a tick or two.
-  HoldoverStatus staleAgain = {false, 0, 0};
+  // only a tick or two. holdoverStartTime should also reflect the new
+  // baseline (600000000), not the previous episode's (500000000).
+  HoldoverStatus staleAgain = {};
   for (int i = 0; i < 20 && !staleAgain.inHoldover; i++) {
     now += 1000;
     staleAgain = h.poll(now);
@@ -158,6 +181,7 @@ void test_fresh_sample_resets_holdover_state() {
   TEST_ASSERT_TRUE(staleAgain.dispersion >= 3000);
   TEST_ASSERT_TRUE(staleAgain.dispersion - 3000 < 5);
   TEST_ASSERT_TRUE(staleAgain.elapsedMs < stale.elapsedMs);
+  TEST_ASSERT_EQUAL(600000000 + HOLDOVER_STALE_MS / 1000, staleAgain.holdoverStartTime.v);
 }
 
 int main(int argc, char **argv) {
@@ -167,6 +191,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_enters_holdover_and_drives_d_only_ppb);
   RUN_TEST(test_dispersion_grows_incrementally_while_in_holdover);
   RUN_TEST(test_large_poll_gap_does_not_inflate_dispersion);
+  RUN_TEST(test_holdover_start_time_is_last_good_sample_plus_stale_window);
   RUN_TEST(test_fresh_sample_resets_holdover_state);
   return UNITY_END();
 }

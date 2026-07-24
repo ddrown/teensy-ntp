@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "NTPClock.h"
 #include "ClockPID.h"
+#include "NtpTimestamp.h"
 
 // If no GPS/PPS sample has been accepted (ClockDiscipline::process() called
 // past the PPS/GPS lag check) in this long, presume GPS/PPS has stopped and
@@ -36,7 +37,14 @@
 struct HoldoverStatus {
   bool inHoldover;
   uint32_t dispersion; // only meaningful when inHoldover is true
-  uint32_t elapsedMs;  // ms spent in the current holdover episode; only meaningful when inHoldover is true
+  uint32_t elapsedMs;  // ms spent in the current holdover episode; only meaningful when inHoldover is true -- internal bookkeeping for growDispersion()'s math, not surfaced to the web UI (a live-ticking duration read by a client that polls once/sec would already be up to a second stale by the time it's rendered)
+  // UTC time the current holdover episode started -- the last accepted
+  // sample's own GPS timestamp plus HOLDOVER_STALE_MS. A fixed point in time
+  // rather than a duration, so it doesn't go stale the way elapsedMs would
+  // if read by a client that only polls once/sec: the value itself doesn't
+  // change from one poll to the next while still in the same episode. Only
+  // meaningful when inHoldover is true.
+  TaiNtpTime holdoverStartTime;
 };
 
 // Watches for GPS/PPS going silent and, once it has, takes over disciplining
@@ -51,12 +59,14 @@ class ClockHoldover {
     ClockHoldover(NTPClock *clock, ClockPID_c *pid) :
       localClock_(clock), pid_(pid), everSeen_(false), inHoldover_(false),
       lastGoodMillis_(0), lastPollMillis_(0), lastGoodDispersion_(0),
-      holdoverElapsedMs_(0) {};
+      holdoverElapsedMs_(0), lastGoodGpsTime_(0) {};
 
     // Call whenever ClockDiscipline::process() accepts a sample (i.e. after
     // every call, regardless of whether it resolved into a PID update) --
     // this is the "GPS/PPS is alive" signal that resets the staleness timer.
-    void noteSampleReceived(uint32_t nowMillis);
+    // gpstime is that sample's own real timestamp, used to compute
+    // holdoverStartTime if/when this later goes stale.
+    void noteSampleReceived(uint32_t nowMillis, TaiNtpTime gpstime);
 
     // Call whenever ClockDiscipline::process() resolves a new dispersion
     // value -- holdover grows its estimate from the last real value rather
@@ -80,6 +90,7 @@ class ClockHoldover {
     uint32_t lastPollMillis_;
     uint32_t lastGoodDispersion_;
     uint32_t holdoverElapsedMs_;
+    TaiNtpTime lastGoodGpsTime_;
 };
 
 extern ClockHoldover holdover;

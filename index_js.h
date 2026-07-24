@@ -163,7 +163,7 @@ function gotData(json) {
   $.each( json, function( key, value ) {
     if(key === "offsetHuman") {
       value = value.toFixed(9);
-    } else if(key === "ppsMillis" || key === "curMillis" || key === "holdoverElapsedMs") {
+    } else if(key === "ppsMillis" || key === "curMillis") {
       value = (value / 1000).toFixed(3);
     } else if(key === "dChiSq") {
       value = value.toFixed(3);
@@ -185,10 +185,26 @@ function gotData(json) {
   $("#gpstimeHuman").text(time.toISOString());
 
   if(json.haveGpsReportedTime) {
-    const gpsReportedTime = new Date((json.gpsReportedTime-2208988800)*1000);
-    $("#gpsReportedTimeHuman").text(gpsReportedTime.toISOString());
+    // A GPS module only emits one NMEA sentence per second, so up to ~1s of
+    // skew between this and the continuously-running "NTP time" is normal
+    // jitter, not a fault -- only show the raw timestamp (for debugging)
+    // once the gap is large enough to actually mean something (GPS/PPS
+    // trouble), otherwise just confirm the two agree.
+    if(Math.abs(json.gpstime - json.gpsReportedTime) <= 1) {
+      $("#gpsReportedTimeStatus").text("in sync");
+    } else {
+      const gpsReportedTime = new Date((json.gpsReportedTime-2208988800)*1000);
+      $("#gpsReportedTimeStatus").text(json.gpsReportedTime + " (" + gpsReportedTime.toISOString() + ")");
+    }
   } else {
-    $("#gpsReportedTimeHuman").text("none yet");
+    $("#gpsReportedTimeStatus").text("none yet");
+  }
+
+  if(json.inHoldover) {
+    const holdoverStartTime = new Date((json.holdoverStartTime-2208988800)*1000);
+    $("#holdoverStartTimeHuman").text(holdoverStartTime.toISOString());
+  } else {
+    $("#holdoverStartTimeHuman").text("n/a");
   }
 
   offsetData.addRow([time, json.offsetHuman * 1000000000]);

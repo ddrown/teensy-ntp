@@ -47,7 +47,7 @@ UpdateTimeOutcome updateTimeCore(ClockDiscipline &discipline, ClockHoldover &hol
   // violated by calling unconditionally. See TODO.md/DONE.md, "MITM bench
   // session follow-up".
   if(!outcome.discipline.rejected) {
-    holdover.noteSampleReceived(nowMillis);
+    holdover.noteSampleReceived(nowMillis, outcome.discipline.gpstime);
   }
 
   return outcome;

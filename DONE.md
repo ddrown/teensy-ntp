@@ -1081,3 +1081,50 @@ embedded C with a reflash cycle between iterations.
       `test_accepted_sample_still_resets_holdover_staleness_timer` alongside it, confirming the fix
       doesn't overcorrect into never resetting the timer for genuinely trusted samples. All 15
       host-side test binaries (130 tests) pass; firmware compiles clean via `./compile.sh`.
+
+## Web UI: replace "Holdover elapsed" with a UTC "Holdover started at" timestamp
+
+- [x] **"Holdover elapsed" (a live-ticking ms-based duration) didn't line up with any other
+      displayed time, and a client polling `state.json` only once/sec would always see it up to a
+      second stale anyway.** Raised in the 2026-07-22 holdover bench session (`holdover.txt`).
+      First attempt added a second field (`msSinceLastGoodSample`) alongside the existing
+      `holdoverElapsedMs`, to separate "how long the holdover *episode* has run" (only starts
+      counting once `HOLDOVER_STALE_MS` has already passed) from "how long since GPS/PPS was
+      actually last heard from." Rejected on review: two duration fields that differ only by a
+      constant 4s offset would be confusing to a reader, not clarifying -- and both are still
+      live-ticking durations, so the "up to 1s stale from a once/sec poll" problem remained either
+      way.
+      **Redesigned as a single fixed UTC timestamp instead of a duration.** `ClockHoldover`'s
+      `noteSampleReceived()` now also takes the accepted sample's own `TaiNtpTime`, stored as
+      `lastGoodGpsTime_`. `HoldoverStatus` gained `holdoverStartTime` (`TaiNtpTime`), computed once
+      the episode goes stale as `lastGoodGpsTime_ + HOLDOVER_STALE_MS/1000` (exact integer seconds,
+      not an approximation) -- only meaningful when `inHoldover` is true, and constant for the
+      whole episode rather than advancing every poll, so a client polling once/sec (or less often)
+      always sees the same correct value, not a stale snapshot of a moving target. `elapsedMs`
+      stays in `HoldoverStatus` for `growDispersion()`'s internal math and test verification, but is
+      no longer surfaced to the web UI.
+      `WebContent::setHoldover()` now takes this `TaiNtpTime` instead of the old
+      `holdoverElapsedMs`/`uint32_t`, converting via `taiToWireNtp()` like the other displayed
+      timestamps. `index_html.h`'s "Holdover elapsed" row became "Holdover started at" (raw + ISO
+      date, matching the `gpstime`/`gpsReportedTime` raw+human pattern); `index_js.h` shows the
+      timestamp only while `inHoldover` is true, `"n/a"` otherwise.
+      `test-ClockHoldover.cpp` gained `test_holdover_start_time_is_last_good_sample_plus_stale_window`
+      (confirms the exact value and that it stays constant across repeated polls within the same
+      episode) and `test_fresh_sample_resets_holdover_state` was extended to confirm a new baseline
+      sample updates `holdoverStartTime` to the new episode, not the previous one's. All 15
+      host-side test binaries (131 tests) pass; firmware compiles clean via `./compile.sh`.
+
+      **Separately, also addressed:** "NTP time" and "GPS reported time" occasionally appearing out
+      of sync on the status page. Root cause isn't a race: "NTP time" is `localClock`'s
+      continuously-running live time, while "GPS reported time" only updates once per second
+      (whenever a new NMEA sentence arrives) and is whole-second resolution -- up to ~1s of skew
+      between a continuously-updated value and a once-a-second discrete one is expected, not a
+      fault. Considered and rejected: hiding "GPS reported time" unless in holdover -- this field's
+      whole purpose is cold-start visibility (seeing the GPS module report *any* date before
+      PPS/lock are established, see "Web UI: show the raw GPS-reported date/time" above), which
+      happens *before* holdover's state machine has even started (`everSeen_` is false), so hiding
+      it "unless in holdover" would suppress it during exactly the window it exists for.
+      `index_js.h` instead collapses the display to `"in sync"` whenever the two are within 1
+      second of each other, and only reveals the raw timestamp (for debugging) once the gap is
+      large enough to actually mean something. `index_html.h`'s "GPS reported time" row collapsed
+      from separate raw+human spans to a single status span (`gpsReportedTimeStatus`) to match.

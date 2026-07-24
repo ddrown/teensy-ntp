@@ -21,7 +21,7 @@ th { font-weight: normal; color: #555; white-space: nowrap; }
 <h3>Clock</h3>
 <table>
 <tr><th>NTP time</th><td><span id='gpstime'></span> (<span id='gpstimeHuman'></span>)</td></tr>
-<tr><th>GPS reported time</th><td><span id='gpsReportedTime'></span> (<span id='gpsReportedTimeHuman'></span>)</td></tr>
+<tr><th>GPS reported time</th><td><span id='gpsReportedTimeStatus'></span></td></tr>
 <tr><th>Offset between NTP/GPS times</th><td><span id='offsetHuman'></span> s</td></tr>
 <tr><th>IEEE 1588 counter at PPS</th><td><span id='counterPPS'></span></td></tr>
 </table>
@@ -37,7 +37,7 @@ th { font-weight: normal; color: #555; white-space: nowrap; }
 <table>
 <tr><th>In holdover (GPS/PPS lost)</th><td><span id='inHoldover'></span></td></tr>
 <tr><th>Holdover dispersion estimate</th><td><span id='holdoverDispersion'></span> s</td></tr>
-<tr><th>Holdover elapsed</th><td><span id='holdoverElapsedMs'></span> s</td></tr>
+<tr><th>Holdover started at</th><td><span id='holdoverStartTime'></span> (<span id='holdoverStartTimeHuman'></span>)</td></tr>
 </table>
 
 <h3>PPS/GPS timing diagnostics</h3>

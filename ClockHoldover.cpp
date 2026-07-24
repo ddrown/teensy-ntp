@@ -2,10 +2,11 @@
 #include "ClockHoldover.h"
 #include "Elapsed.h"
 
-void ClockHoldover::noteSampleReceived(uint32_t nowMillis) {
+void ClockHoldover::noteSampleReceived(uint32_t nowMillis, TaiNtpTime gpstime) {
   everSeen_ = true;
   lastGoodMillis_ = nowMillis;
   lastPollMillis_ = nowMillis;
+  lastGoodGpsTime_ = gpstime;
   inHoldover_ = false;
   holdoverElapsedMs_ = 0;
 }
@@ -20,7 +21,7 @@ static uint32_t growDispersion(uint32_t base, uint32_t elapsedMs) {
 }
 
 HoldoverStatus ClockHoldover::poll(uint32_t nowMillis) {
-  HoldoverStatus status = {false, 0, 0};
+  HoldoverStatus status = {};
 
   if (!everSeen_) {
     return status;
@@ -58,5 +59,8 @@ HoldoverStatus ClockHoldover::poll(uint32_t nowMillis) {
   status.inHoldover = true;
   status.dispersion = growDispersion(lastGoodDispersion_, holdoverElapsedMs_);
   status.elapsedMs = holdoverElapsedMs_;
+  // HOLDOVER_STALE_MS is exact whole seconds (4000ms), so this is exact
+  // integer math, not an approximation.
+  status.holdoverStartTime = TaiNtpTime(lastGoodGpsTime_.v + HOLDOVER_STALE_MS / 1000);
   return status;
 }
