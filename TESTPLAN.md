@@ -49,15 +49,26 @@ immediately, so `discipline.process()` never runs and never resets the holdover 
 timer.
 
 - [ ] Pull the PPS line; confirm serial prints repeated `LAG ...` with growing `ppsToGPS`
-- [x] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
+- [ ] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
       the next `slower_poll()` cycle
-- [x] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing, `holdoverElapsedMs`
+- [ ] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing, `holdoverElapsedMs`
       counting up -- leave it disconnected a couple minutes to see the dispersion actually
       *grow*, not just flip on
-- [x] NTP responses keep being served (D-only discipline) with the growing dispersion
+- [ ] NTP responses keep being served (D-only discipline) with the growing dispersion
       reflected to clients (`ntpq -c rv` or equivalent)
-- [x] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
+- [ ] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
       passes, sample accepted, `inHoldover` clears without a clock step
+- [ ] "NTP time" in the web UI keeps advancing throughout the outage instead of freezing
+      (`WebContent` always reads `localClock`'s live time) -- the diagnostic fields
+      (`offsetHuman`/`pidD`/`dChiSq`) correctly *do* stay frozen at their last resolved values,
+      which is the accepted tradeoff, not a regression
+- [ ] "GPS reported time" stays `in sync` throughout, even while `inHoldover` is true -- NMEA
+      sentences keep decoding independent of the PPS capture snapshot, so this and "NTP time"
+      answer different questions ("is GPS still talking" vs "when did the device last trust a
+      sample")
+- [ ] "Holdover started at" shows the last accepted sample's own timestamp plus
+      `HOLDOVER_STALE_MS` (4s), and stays *exactly* the same value across repeated polls
+      within this one episode rather than drifting
 
 This does **not** exercise the `D`/`L` duplicate-timestamp logic (needs fabricated NMEA
 content, not a PPS dropout) -- see section 6.
@@ -68,6 +79,11 @@ content, not a PPS dropout) -- see section 6.
       live and match serial/JSON
 - [x] Existing offset graph / satellite radar still render correctly (new JSON fields
       didn't break the page's JS parser)
+- [ ] "GPS reported time" shows a real (if not yet locked) date before the first-ever GPS fix,
+      distinct from "NTP time" (which reads `localClock`'s live compile-time-seeded clock until
+      then) -- confirms the field still serves its original cold-start-visibility purpose
+- [ ] During normal steady-state operation "GPS reported time" reads `in sync`, not a raw
+      timestamp, confirming the ~1s NMEA-cadence jitter doesn't look like a fault
 
 ## 6. Live NMEA-hijacker tests
 
@@ -120,6 +136,20 @@ Correct sequence:
 - [ ] Serial prints `L <gpstime>`, stepped forward one second to `2017-01-01 00:00:00`
 - [ ] Resume real dates afterward and confirm no bad step lands in the offset telemetry
 
+### 6d. Sustained rejection eventually triggers holdover
+
+Before `98c6c5f`, `holdover.noteSampleReceived()` fired even on a *rejected* sample, so a
+long run of `D`s never tripped holdover -- something kept "arriving" every second even
+though nothing was trusted. Confirms the fix: keep 6a's or 6b's duplicate/backwards
+injection running continuously (not just the one-shot check those sections describe) past
+`HOLDOVER_STALE_MS` (4000ms).
+
+- [ ] `inHoldover` flips true partway through the sustained `D` run, not never
+- [ ] `holdoverDispersion` grows the longer the rejection run continues
+- [ ] Left long enough, NTP responses fall back to stratum 16 (`dispersion > 0x10000`)
+- [ ] Resuming valid NMEA afterward clears holdover normally (same bar as section 4's PPS
+      reconnect check)
+
 ### Isolation caveat
 
 While feeding fabricated timestamps the device disciplines its real hardware clock and
@@ -131,8 +161,8 @@ buffer/PID state recovers cleanly -- it will have absorbed the fabricated jumps.
 ## 7. Y2036 wire-timestamp rollover (NMEA MITM)
 
 The 32-bit NTP wire format (`ntptime()`, seconds since 1900) wraps at **2036-02-07
-06:28:16 UTC**. Two independent things need to survive that crossing, and the hijacker can
-drive both live instead of waiting a decade:
+06:28:16 UTC**. Three independent things need to survive that crossing, and the hijacker can
+drive all three live instead of waiting a decade:
 
 1. **`gpstime`-vs-`compileTime` sanity check** (`gps_serial_poll()`, `teensy-ntp.ino:224`).
    Before `817ce85`, this compared raw `ntptime()` values; after a real-world wrap, a
@@ -147,6 +177,8 @@ drive both live instead of waiting a decade:
    `elapsedWithin()` helper rather than plain subtraction, so a client that registered just
    before the wrap shouldn't look expired (or falsely fresh) for the ~4096s window
    straddling it.
+3. **`ClockDiscipline::process()`'s own monotonicity guard** (`ClockDiscipline.cpp:48`) --
+   found later than the other two, via this same rebase-relay testing; see 7e.
 
 ### 7a. Seeding near the wrap instead of waiting a decade
 
@@ -191,6 +223,20 @@ clock crosses the wrap for real within minutes of bench time.
       client and confirm the served time, not just the fact that a response arrives)
 - [ ] Web UI / JSON offset and dispersion fields stay sane through the crossing -- no spikes
       or stuck/negative values
+
+### 7e. `ClockDiscipline`'s own monotonicity guard
+
+A third, more severe Y2036 hazard found via this same rebase-relay testing (not one of the
+two listed in this section's intro): `ClockDiscipline::process()`'s monotonicity guard
+compared raw wrapping `TaiNtpTime.v` values directly (`ClockDiscipline.cpp:48`, pre-`b2a4027`).
+Once the rebased clock crossed the wrap, every subsequent real sample compared as
+"backwards" and was rejected (`D 0`, `D 1`, ...) -- and since a rejected sample never updates
+`lastGpstime_`, it couldn't recover until the *next* 2^32-second wrap. Confirmed on the
+bench; fixed via the same `elapsedWithin()` wraparound-safe pattern already used elsewhere
+in this section.
+
+- [ ] No `D` messages appear as the rebased clock crosses `06:28:16` -- normal per-sample
+      telemetry continues uninterrupted through the crossing, same bar as 7b
 
 ## 8. Leap-second table currency
 
