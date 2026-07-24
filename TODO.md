@@ -17,16 +17,3 @@ From a real PPS-disconnect holdover test (see `holdover.txt`), roughly in priori
       during the 2026-07-22 holdover bench session, not yet investigated.
 - [ ] Web UI: "Holdover elapsed" could show elapsed time since the last real PPS pulse instead (or
       in addition), so it lines up directly against "Reference time" for a reader comparing the two.
-
-## MITM bench session follow-up (2026-07-23)
-
-- [ ] Even with the Y2036 monotonicity fix (see DONE.md, "Y2036 wraparound in ClockDiscipline's
-      monotonicity guard"), one compounding visibility gap identified alongside it is still open:
-      `holdover.noteSampleReceived()` (`teensy-ntp.ino`, right after `discipline.process()`) fires
-      unconditionally regardless of accept/reject, so a sustained run of rejected samples (for any
-      reason, not just the now-fixed wraparound) never trips holdover's staleness timer -- no
-      `inHoldover`, no growing dispersion, no stratum-16 fallback, even though the served clock may
-      no longer be getting disciplined at all. (The other half originally identified alongside this
-      -- `WebContent` echoing an unaccepted raw `gpstime` -- is now moot: see DONE.md, "WebContent
-      gpstime freeze during holdover," `WebContent` no longer tracks a GPS-derived `gpstime` at
-      all.)

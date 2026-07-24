@@ -937,8 +937,9 @@ embedded C with a reflash cycle between iterations.
       it couldn't recover until the *next* 2^32-second wrap). Same class of bug `817ce85` already
       fixed for `gps_serial_poll()`'s sanity check (see "NTP timestamp era rollover (Y2036)" above),
       but `ClockDiscipline`'s own comparison never got the same treatment. Compounded by two things
-      that made the failure silent rather than visibly broken (still open -- see TODO.md):
-      `holdover.noteSampleReceived()` fires unconditionally regardless of accept/reject, so
+      that made the failure silent rather than visibly broken (both since fixed -- see "WebContent
+      gpstime freeze during holdover" and "noteSampleReceived() ordering" below):
+      `holdover.noteSampleReceived()` fired unconditionally regardless of accept/reject, so
       holdover's staleness timer never tripped; and `WebContent::setPPSData()` (called before the
       accept/reject decision) echoed the raw incoming `gpstime`, so the web UI's "NTP time" field
       kept advancing normally even while the actual disciplined `localClock` was silently frozen at
@@ -992,11 +993,10 @@ embedded C with a reflash cycle between iterations.
       still only update once per resolve), so the displayed clock keeps ticking while those
       diagnostic fields sit at their last resolved value -- not a correctness issue, since staleness
       of the diagnostics is already visible separately via the holdover/dispersion fields.
-      This also resolves, as a side effect, half of the still-open MITM-session compounding-
-      visibility-gap item (see TODO.md): `WebContent::setPPSData()` no longer echoes an unaccepted
-      raw `gpstime` at all, since there's no `gpstime` field left to echo. The other half of that
-      item (`holdover.noteSampleReceived()` firing unconditionally regardless of accept/reject) is
-      unrelated to `WebContent` and remains open.
+      This also resolves, as a side effect, half of the MITM-session compounding-visibility-gap item
+      (see "noteSampleReceived() ordering" below for the other half): `WebContent::setPPSData()` no
+      longer echoes an unaccepted raw `gpstime` at all, since there's no `gpstime` field left to
+      echo.
       Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`
       itself has no host-side tests -- it depends directly on lwIP/Teensy hardware APIs, per
       `CLAUDE.md`).
@@ -1042,3 +1042,30 @@ embedded C with a reflash cycle between iterations.
       `$.each(json, ...)`) needed no changes at all. Firmware compiles clean via `./compile.sh`; not
       verified visually in a browser (`WebContent`/`WebServer` have no host-side tests, per
       `CLAUDE.md`).
+
+## noteSampleReceived() ordering: rejected samples no longer count as holdover-fresh
+
+- [x] **`holdover.noteSampleReceived()` fired unconditionally, before checking whether
+      `ClockDiscipline` actually accepted the sample.** Flagged alongside the Y2036 wraparound fix
+      (see above) -- back then a rejected sample was always a *transient* glitch (a single duplicate
+      or a brief stall), so resetting holdover's staleness timer regardless of accept/reject looked
+      harmless. The wraparound bug showed the real risk: a *sustained* run of rejections (there, once
+      every real sample after the wrap; in general, any future bug, a wedged `lastGpstime_`, or a
+      misbehaving GPS module) would never trip holdover, since *something* kept arriving every
+      second even though none of it was trusted -- no `inHoldover`, no growing dispersion, no
+      stratum-16 fallback, even though the served clock wasn't being disciplined at all. This also
+      directly contradicted `ClockHoldover.h`'s own documented contract for the method ("call
+      whenever `ClockDiscipline::process()` *accepts* a sample"), which the call site never actually
+      honored.
+      Fixed as part of extracting `updateTime()`'s orchestration logic into `UpdateTimeCore.cpp`
+      (see "extract testable pieces out of the untested teensy-ntp.ino" -- this fix landed as a
+      follow-up in the same new file): `holdover.noteSampleReceived(nowMillis)` is now called only
+      `if(!outcome.discipline.rejected)`, after `discipline.process()` returns, instead of
+      unconditionally right after it. `test-UpdateTimeCore.cpp`'s
+      `test_rejected_sample_still_resets_holdover_staleness_timer` (which characterized the old
+      behavior) was rewritten to `test_rejected_sample_does_not_reset_holdover_staleness_timer` --
+      a rejected sample arriving more than `HOLDOVER_STALE_MS` after the last *accepted* one now
+      correctly leaves holdover active. Added
+      `test_accepted_sample_still_resets_holdover_staleness_timer` alongside it, confirming the fix
+      doesn't overcorrect into never resetting the timer for genuinely trusted samples. All 15
+      host-side test binaries (130 tests) pass; firmware compiles clean via `./compile.sh`.

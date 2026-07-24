@@ -36,7 +36,19 @@ UpdateTimeOutcome updateTimeCore(ClockDiscipline &discipline, ClockHoldover &hol
   }
 
   outcome.discipline = discipline.process(ppsCounter, gpstime);
-  holdover.noteSampleReceived(nowMillis);
+  // Only count a sample ClockDiscipline actually trusted as "GPS/PPS is
+  // alive" -- a sustained run of rejections (a future bug, a wedged
+  // lastGpstime_, a misbehaving module -- not just an occasional glitch)
+  // should still let holdover's staleness timer expire, grow dispersion, and
+  // eventually fall back to stratum 16, rather than looking indefinitely
+  // fresh just because *something* keeps arriving. See ClockHoldover.h's own
+  // documented contract for noteSampleReceived() ("call whenever
+  // ClockDiscipline::process() accepts a sample"), which this previously
+  // violated by calling unconditionally. See TODO.md/DONE.md, "MITM bench
+  // session follow-up".
+  if(!outcome.discipline.rejected) {
+    holdover.noteSampleReceived(nowMillis);
+  }
 
   return outcome;
 }

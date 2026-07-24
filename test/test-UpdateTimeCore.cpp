@@ -83,13 +83,12 @@ void test_holdover_triggers_pid_reset_before_processing_next_sample() {
   TEST_ASSERT_EQUAL(1, pid.samples());
 }
 
-// Characterizes CURRENT (not-yet-fixed) behavior: noteSampleReceived() fires
-// even when ClockDiscipline rejects the sample, so holdover's staleness
-// timer resets despite nothing actually being trusted. This is the still-open
-// item in TODO.md ("MITM bench session follow-up") -- this test documents
-// today's behavior, not an endorsement of it; it should flip if that item is
-// ever fixed.
-void test_rejected_sample_still_resets_holdover_staleness_timer() {
+// A rejected sample must NOT count as "GPS/PPS is alive" for holdover's
+// staleness timer -- otherwise a sustained run of rejections (a future bug,
+// a wedged lastGpstime_, a misbehaving module) would never trip holdover,
+// even though the served clock isn't actually being disciplined at all. See
+// DONE.md, "MITM bench session follow-up".
+void test_rejected_sample_does_not_reset_holdover_staleness_timer() {
   NTPClock clock;
   ClockPID_c pid;
   ClockDiscipline discipline(&clock, &pid);
@@ -97,11 +96,36 @@ void test_rejected_sample_still_resets_holdover_staleness_timer() {
 
   updateTimeCore(discipline, holdover, pid, 1000, TaiNtpTime(500000000), 1000, 1000, 1000);
 
-  // A backwards jump -- always rejected, leap second or not.
-  UpdateTimeOutcome outcome = updateTimeCore(discipline, holdover, pid, 2000, TaiNtpTime(499999999), 2000, 2000, 2000);
+  // A backwards jump -- always rejected, leap second or not -- arriving well
+  // past the staleness window since the last *accepted* sample.
+  uint32_t laterMillis = 1000 + HOLDOVER_STALE_MS + 1;
+  UpdateTimeOutcome outcome = updateTimeCore(discipline, holdover, pid, 2000, TaiNtpTime(499999999),
+      laterMillis, laterMillis, laterMillis);
   TEST_ASSERT_TRUE(outcome.discipline.rejected);
 
-  HoldoverStatus hs = holdover.poll(2000);
+  // If the rejected sample had incorrectly reset the staleness timer, this
+  // would report fresh instead.
+  HoldoverStatus hs = holdover.poll(laterMillis);
+  TEST_ASSERT_TRUE(hs.inHoldover);
+}
+
+// An accepted sample (clock-set, leap-corrected, or an ordinary
+// resolve/buffer) still must reset the staleness timer -- the fix above
+// must not turn noteSampleReceived() into a no-op.
+void test_accepted_sample_still_resets_holdover_staleness_timer() {
+  NTPClock clock;
+  ClockPID_c pid;
+  ClockDiscipline discipline(&clock, &pid);
+  ClockHoldover holdover(&clock, &pid);
+
+  updateTimeCore(discipline, holdover, pid, 1000, TaiNtpTime(500000000), 1000, 1000, 1000);
+
+  uint32_t laterMillis = 1000 + HOLDOVER_STALE_MS + 1;
+  UpdateTimeOutcome outcome = updateTimeCore(discipline, holdover, pid, 2000, TaiNtpTime(500000001),
+      laterMillis, laterMillis, laterMillis);
+  TEST_ASSERT_FALSE(outcome.discipline.rejected);
+
+  HoldoverStatus hs = holdover.poll(laterMillis);
   TEST_ASSERT_FALSE(hs.inHoldover);
 }
 
@@ -111,6 +135,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_lag_exceeding_tolerance_is_rejected_before_discipline);
   RUN_TEST(test_lag_at_tolerance_boundary_feeds_discipline);
   RUN_TEST(test_holdover_triggers_pid_reset_before_processing_next_sample);
-  RUN_TEST(test_rejected_sample_still_resets_holdover_staleness_timer);
+  RUN_TEST(test_rejected_sample_does_not_reset_holdover_staleness_timer);
+  RUN_TEST(test_accepted_sample_still_resets_holdover_staleness_timer);
   return UNITY_END();
 }
