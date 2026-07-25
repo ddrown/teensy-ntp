@@ -39,12 +39,8 @@ class DateTime {
   // per LeapSeconds.h, then rebased to 1970).
   uint32_t unixtime(void) const;
 
-  String toString(void);
   void print(Stream *out) const;
-  
+
  protected:
   uint16_t year_, month_, day_, hour_, minute_, second_;
-
- private:
-   char chartime[9]; // for toString
 };

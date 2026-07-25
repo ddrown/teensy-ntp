@@ -1171,3 +1171,13 @@ embedded C with a reflash cycle between iterations.
       unambiguously picks the non-explicit one. No behavior change; confirmed via `test/`'s g++
       build (same warning flags) that the exact warning is gone and all 15 test binaries still
       pass.
+
+- [x] **`-Wformat-overflow` warning on `DateTime::toString()`'s `sprintf(chartime, "%02d:%02d:%02d",
+      hour(), minute(), second())`, flagged from a real firmware build.** `hour()`/`minute()`/
+      `second()` return `uint16_t` with no enforced 0-59 bound, so GCC's static analysis correctly
+      flags that a large value could overflow the 9-byte `chartime` buffer -- a real latent
+      stack-buffer overflow, not just a false positive, if those fields were ever out of range.
+      `toString()`/`chartime` had no callers anywhere in the repo (grepped, including tests), so
+      rather than patch the `sprintf` (`snprintf`, clamp the fields, ...), deleted `toString()` and
+      the now-unused `chartime` buffer outright. `DateTime::print(Stream*)` (also unused, but out
+      of scope for this warning) was left as-is.

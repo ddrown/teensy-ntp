@@ -201,11 +201,6 @@ uint32_t DateTime::unixtime(void) const {
   return t;
 }
 
-String DateTime::toString(void) {
-  sprintf(chartime, "%02d:%02d:%02d", hour(), minute(), second() );
-  return chartime;
-}
-
 void DateTime::print(Stream *out) const {
   out->print(year());
   out->print("-");
