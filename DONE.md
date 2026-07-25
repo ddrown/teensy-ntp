@@ -1000,18 +1000,13 @@ embedded C with a reflash cycle between iterations.
       Firmware compiles clean via `./compile.sh`; all 112 host-side tests still pass (`WebContent`
       itself has no host-side tests -- it depends directly on lwIP/Teensy hardware APIs, per
       `CLAUDE.md`).
-      Also resolved this same GPS satellite strong/weak signal counts sometimes appearing to jump
-      abruptly (e.g. 5→39) -- observed during the 2026-07-22 holdover bench session, never
-      root-caused at the time. Not reproduced since this fix (reported 2026-07-23); the working
-      theory is that it was a display artifact of the old frozen `gpstime`, not a real GPS/firmware
-      issue -- the satellite counts (`strongSignals`/`weakSignals`/`noSignals`) come from
-      `GPSDateTime`'s own live parsing state, independent of `WebContent`'s `gpstime` field, but with
-      `gpstime` frozen the chart's x-axis (`gotData()`'s `time` value, `index_js.h`) stayed pinned to
-      the same instant across several polls; once it finally advanced, whatever satellite count
-      changes had accumulated over that stall would appear to land all at once as a single large
-      jump instead of smoothly over the intervening polls. Noted as a working theory, not confirmed
-      by direct reproduction of the original anomaly -- the fix that resolved it was a side effect
-      of unrelated work, not a change targeted at this specific report.
+      Also *appeared* to resolve this same GPS satellite strong/weak signal counts sometimes
+      jumping abruptly (e.g. 5→39) -- observed during the 2026-07-22 holdover bench session, never
+      root-caused at the time, not reproduced immediately after this fix (reported 2026-07-23), so
+      logged here as a working theory (display artifact of the old frozen `gpstime`'s chart x-axis).
+      **Wrong -- see "Satellite signal counts accumulating without bound during holdover" below**,
+      found on a longer holdover run: the real cause was unrelated to this fix and just hadn't been
+      exercised for long enough yet to reproduce.
 
 ## Web UI: show the raw GPS-reported date/time
 
@@ -1181,3 +1176,36 @@ embedded C with a reflash cycle between iterations.
       rather than patch the `sprintf` (`snprintf`, clamp the fields, ...), deleted `toString()` and
       the now-unused `chartime` buffer outright. `DateTime::print(Stream*)` (also unused, but out
       of scope for this warning) was left as-is.
+
+## Satellite signal counts accumulating without bound during holdover
+
+- [x] **`weakSignals`/`strongSignals`/`noSignals` growing to absurd values (1436 weak signals)
+      after a ~5 minute holdover, found via bench testing (`data/run4/notes`).** Same root cause
+      class as "GPS reported time" freezing during holdover, above -- but a worse symptom, because
+      `GPSDateTime::decodeGSV()`'s accumulation is additive, not overwriting. `strongSignalNext`/
+      `weakSignalNext`/`noSignalNext` are incremented once per satellite entry across a GSV burst
+      (there's no bound on how many bursts contribute before they're read), and used to only get
+      published into `strongSignal`/`weakSignal`/`noSignal` (and reset to 0) inside `commit()`'s
+      `sawGSV`-gated block -- which, like everything else in `commit()`, only fires once per real
+      PPS pulse. Once PPS was lost, `commit()` stopped firing entirely, but the GPS module kept
+      sending GSV sentences once/sec regardless, so the `Next` counters kept accumulating every
+      second of the whole holdover episode with nothing to ever reset them; when PPS finally
+      returned and `commit()` ran again, the multi-minute accumulated total published in one shot.
+      This is exactly why the "5→39" jump logged above (before the once-per-second
+      `gpstime`/reported-time freeze was fixed) looked plausible as a display artifact at the time
+      -- a short stall only accumulates a little -- but a long enough holdover exposes the real,
+      unbounded growth underneath.
+      Fixed the same way as `reportedUpdate()`/`reportedNow()`: moved the publish-and-reset step out
+      from behind `commit()`'s `committedThisPulse_` gate, into `decode()`'s checksum-valid branch
+      for every ZDA/RMC sentence (regardless of whether `commit()` itself ends up running for it).
+      Considered and rejected: keying the reset/publish off GSV's own "total messages"/"message
+      number" fields instead -- multi-constellation receivers (GPS+GLONASS, etc.) emit separate
+      GSV groups per talker within the same one-second cycle (see `test_satellites`'s GPGSV+GLGSV
+      mock data), and the existing design deliberately merges all of them into one listing; keying
+      off a single talker's own message-complete field would flush (and reset-clobber) the combined
+      count mid-cycle. Publishing on ZDA/RMC instead preserves that merge behavior exactly, since
+      it's the same trigger point `commit()` already used -- just no longer gated on PPS. `commit()`
+      itself is now just the four date/time field copies.
+      `test-GPS.cpp` gained `test_satellite_counts_reset_each_cycle_during_pps_loss`: feeds the same
+      GSV+ZDA cycle twice with only one `firePulse()` call (simulating PPS staying lost across both),
+      and asserts the second cycle's counts match the first cycle's alone, not the two summed.

@@ -246,6 +246,46 @@ void test_reported_update_is_consumed_on_read() {
   TEST_ASSERT_FALSE(gps.reportedUpdate());
 }
 
+// Satellite counts (strongSignal/weakSignal/noSignal) used to only publish
+// and reset inside commit(), gated by committedThisPulse_ -- which, exactly
+// like reportedUpdate() above, gets stuck once PPS is lost. Unlike the
+// date/time fields (which just freeze), decodeGSV()'s
+// strongSignalNext/weakSignalNext/noSignalNext *accumulate* per satellite
+// entry with nothing left to reset them, so a long holdover built up an
+// unbounded total instead of freezing -- observed on the bench as
+// weakSignals reported as 1436 after a ~5 minute holdover (data/run4/notes).
+// Feeding the same GSV+ZDA cycle twice with only one PPS pulse (simulating
+// PPS loss between the two) must show the second cycle's own count, not the
+// two cycles summed.
+void test_satellite_counts_reset_each_cycle_during_pps_loss() {
+  GPSDateTime gps(&Serial);
+  const char *gsv1 = "$GPGSV,3,1,10,04,82,026,36,16,54,040,35,09,46,320,20,27,38,117,37*74\r\n";
+  const char *gsv2 = "$GPGSV,3,2,10,03,32,209,31,08,25,161,33,07,24,288,24,26,23,043,23*7D\r\n";
+  const char *gsv3 = "$GPGSV,3,3,10,22,17,190,30,31,00,081,*7E\r\n";
+  const char *zda  = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
+
+  firePulse(1);
+  feed(gps, gsv1, 5000);
+  feed(gps, gsv2, 5000);
+  feed(gps, gsv3, 5000);
+  feed(gps, zda, 5000);
+
+  TEST_ASSERT_EQUAL(6, gps.strongSignals());
+  TEST_ASSERT_EQUAL(3, gps.weakSignals());
+  TEST_ASSERT_EQUAL(1, gps.noSignals());
+
+  // no firePulse() here -- PPS stays lost for this second cycle, same as a
+  // real holdover episode.
+  feed(gps, gsv1, 9000);
+  feed(gps, gsv2, 9000);
+  feed(gps, gsv3, 9000);
+  feed(gps, zda, 9000);
+
+  TEST_ASSERT_EQUAL(6, gps.strongSignals()); // this cycle's count, not 12
+  TEST_ASSERT_EQUAL(3, gps.weakSignals());   // this cycle's count, not 6
+  TEST_ASSERT_EQUAL(1, gps.noSignals());     // this cycle's count, not 2
+}
+
 void test_decode() {
   const char mockMessage[]  = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
   const char mockMessage2[] = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
@@ -440,5 +480,6 @@ int main() {
   RUN_TEST(test_rmc_then_zda_only_first_commits);
   RUN_TEST(test_reported_update_survives_pps_loss);
   RUN_TEST(test_reported_update_is_consumed_on_read);
+  RUN_TEST(test_satellite_counts_reset_each_cycle_during_pps_loss);
   return UNITY_END();
 }

@@ -24,16 +24,8 @@ void GPSDateTime::commit() {
   day_ = newDay_;
   // PPS/millis reference was already snapshotted by decodeType() on
   // whichever of ZDA/RMC/GGA arrived first this cycle -- see there.
-  if(sawGSV) { // sometimes GSV doesn't come every second
-    strongSignal = strongSignalNext;
-    weakSignal = weakSignalNext;
-    noSignal = noSignalNext;
-    sawGSV = false;
-    satellites_copy = (satellites_copy + 1) % 2;
-    satellites[satellites_copy][satellites_i].id = 0;
-    satellites_i = 0;
-  }
-  strongSignalNext = weakSignalNext = noSignalNext = 0;
+  // Satellite counts are published in decode(), not here -- see there for
+  // why.
 }
 
 void GPSDateTime::time(const char *time) {
@@ -299,6 +291,29 @@ bool GPSDateTime::decode() {
         // stays permanently true, so commit() never runs again -- see
         // reportedNow()/reportedUpdate()).
         reportUpdated_ = true;
+
+        // Publish this cycle's satellite counts here, on every valid
+        // ZDA/RMC sentence -- deliberately NOT inside the
+        // committedThisPulse_ gate below. GSV has nothing to do with PPS,
+        // but used to only get flushed from commit(), so once PPS was lost
+        // it silently accumulated strongSignalNext/weakSignalNext/
+        // noSignalNext without bound for the whole holdover episode
+        // instead of resetting once/sec like normal -- observed as
+        // weakSignals jumping to 1436 after a ~5 minute holdover (bench
+        // testing, see DONE.md). ZDA/RMC still arrive once/sec from the
+        // module even while PPS is down, so this keeps the same
+        // once-per-second publish cadence regardless of PPS state.
+        if(sawGSV) { // sometimes GSV doesn't come every second
+          strongSignal = strongSignalNext;
+          weakSignal = weakSignalNext;
+          noSignal = noSignalNext;
+          sawGSV = false;
+          satellites_copy = (satellites_copy + 1) % 2;
+          satellites[satellites_copy][satellites_i].id = 0;
+          satellites_i = 0;
+        }
+        strongSignalNext = weakSignalNext = noSignalNext = 0;
+
         if(!committedThisPulse_) {
           this->commit();
           isUpdated_ = true;
