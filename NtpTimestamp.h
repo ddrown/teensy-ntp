@@ -26,7 +26,15 @@
 // LeapSeconds.h's table (leapSeconds[].effectiveNtpTime) is keyed on.
 struct WireNtpTime {
   uint32_t v;
-  explicit WireNtpTime(uint32_t seconds = 0) : v(seconds) {}
+  // Split from a single defaulted-argument constructor: a defaulted
+  // explicit constructor doubling as the default constructor causes GCC to
+  // warn ("would use explicit constructor") anywhere a containing struct is
+  // value-initialized with `{}`/`= {}` (DisciplineResult, HoldoverStatus,
+  // etc.) -- harmless, but noisy. Two constructors instead of one sidesteps
+  // it: `{}` picks the plain default constructor, WireNtpTime(x) still
+  // requires an explicit call.
+  WireNtpTime() : v(0) {}
+  explicit WireNtpTime(uint32_t seconds) : v(seconds) {}
 };
 
 // TAI-like: real, leap-second-adjusted seconds, monotonic across a leap
@@ -34,7 +42,9 @@ struct WireNtpTime {
 // NTPClock/ClockPID/ClockDiscipline work in internally (see DateTime.h).
 struct TaiNtpTime {
   uint32_t v;
-  explicit TaiNtpTime(uint32_t seconds = 0) : v(seconds) {}
+  // See WireNtpTime's constructors above for why this is split in two.
+  TaiNtpTime() : v(0) {}
+  explicit TaiNtpTime(uint32_t seconds) : v(seconds) {}
 };
 
 // depends on CPU byte order -- matches the pre-existing NTPCLOCK_SECONDS/

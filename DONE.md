@@ -1159,3 +1159,15 @@ embedded C with a reflash cycle between iterations.
       intervening PPS pulse still updates `reportedNow()`/`reportedUpdate()` even though `decode()`
       correctly still returns `false` and `GPSnow()` stays frozen) and
       `test_reported_update_is_consumed_on_read`.
+
+- [x] **Compiler warnings on `DisciplineResult discipline = {};` (UpdateTimeCore.h) and similar
+      value-initialized structs, flagged from a real firmware build.** `WireNtpTime`/`TaiNtpTime`
+      (NtpTimestamp.h) each had a single `explicit Type(uint32_t seconds = 0)` constructor doing
+      double duty as both the converting and default constructor; GCC warns whenever a containing
+      aggregate (`DisciplineResult`, `HoldoverStatus`, ...) is value-initialized with `{}`/`= {}`,
+      since that recursively list-initializes the `TaiNtpTime`/`WireNtpTime` member through the
+      same constructor an implicit conversion would use. Fixed by splitting each into two
+      constructors -- a plain `Type()` and a separate `explicit Type(uint32_t seconds)` -- so `{}`
+      unambiguously picks the non-explicit one. No behavior change; confirmed via `test/`'s g++
+      build (same warning flags) that the exact warning is gone and all 15 test binaries still
+      pass.
