@@ -21,6 +21,7 @@ class GPSDateTime {
     lockStatus_ = dateMillis = 0;
     everCapturedPps_ = false;
     committedThisPulse_ = false;
+    reportUpdated_ = false;
     capturedPpsCaptures_ = 0;
     strongSignal = weakSignal = strongSignalNext = weakSignalNext = noSignal = noSignalNext = 0;
     satellites[0][0].id = satellites[0][0].azimuth = satellites[0][0].elevation = satellites[0][0].snr = 0;
@@ -43,6 +44,8 @@ class GPSDateTime {
   void year(const char *year);
   uint16_t year(void);
   DateTime GPSnow();
+  DateTime reportedNow();
+  bool reportedUpdate() { bool result = reportUpdated_; reportUpdated_ = false; return result; };
   bool decode();
   uint32_t capturedAt() { return dateMillis; };
   uint32_t ppsCounter() { return ppsCounter_; };
@@ -84,6 +87,7 @@ class GPSDateTime {
   enum {waitDollar, getType, inZDATimeCode, inRMCTimeCode, inGSA, inGSV} validCode;
   bool validString;
   bool isUpdated_;
+  bool reportUpdated_;
   bool getFlag_;
   bool sawGSV;
   bool everCapturedPps_;

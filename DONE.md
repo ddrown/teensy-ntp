@@ -1128,3 +1128,34 @@ embedded C with a reflash cycle between iterations.
       second of each other, and only reveals the raw timestamp (for debugging) once the gap is
       large enough to actually mean something. `index_html.h`'s "GPS reported time" row collapsed
       from separate raw+human spans to a single status span (`gpsReportedTimeStatus`) to match.
+
+- [x] **"GPS reported time" (and other web UI fields) freezing during a real holdover episode,
+      found via bench testing with PPS physically disconnected (`data/run3/notes`).** Root cause:
+      `GPSDateTime::commit()` (GPS.cpp) only fires once per real PPS pulse, gated by
+      `committedThisPulse_`, which is only reset back to `false` inside `decodeType()` when
+      `pps.getCaptures()` has advanced (see "Snapshot the PPS/local-time reference..." comment
+      there). Once PPS stops advancing entirely, that reset never happens again, so `commit()`
+      never runs again either -- and `decode()`'s return value (`isUpdated_`) is only ever set
+      inside `commit()`'s gated branch. `gps_serial_poll()` only called `webcontent.setGpsTime()`
+      and `updateTime()` from inside `if(gps.decode())`, so once PPS was lost, *both* stopped being
+      called at all: not just "GPS reported time" but `offsetHuman`/`pidD`/`dChiSq` too (all only
+      written from `updateTime()`'s dispatch), and no more "LAG"/"B" serial messages either -- even
+      though the GPS module kept sending valid, checksum-passing NMEA sentences the whole time.
+      This directly defeated the point of "GPS reported time" (see above): it's meant to show
+      progress "regardless of whether ClockDiscipline trusts it," and PPS-loss/holdover is exactly
+      the scenario that needed it most.
+      Fixed by decoupling "the web UI's raw GPS-reported time" from `commit()`'s once-per-pulse
+      gate, rather than loosening that gate itself (which exists to stop `updateTime()` processing
+      the same PPS pulse twice when a module emits both ZDA and RMC — left untouched, so the
+      clock-discipline path's behavior doesn't change at all). `GPSDateTime` gained `reportUpdated_`
+      (set on every checksum-valid ZDA/RMC sentence, independent of `committedThisPulse_`, consumed
+      via a new `reportedUpdate()` getter) and `reportedNow()` (a `DateTime` built from the
+      not-yet-committed `newTime_`/`newYear_`/`newMonth_`/`newDay_` fields, which
+      `decodeTimeCode()` already updates on every sentence regardless of the commit gate).
+      `teensy-ntp.ino`'s `gps_serial_poll()` now calls `webcontent.setGpsTime(gps.reportedNow()...)`
+      whenever `gps.reportedUpdate()` is true, separately from the `if(committed)` block that still
+      gates `updateTime()`/the `B` check on `gps.decode()`'s original, unchanged return value.
+      `test-GPS.cpp` gained `test_reported_update_survives_pps_loss` (a second ZDA sentence with no
+      intervening PPS pulse still updates `reportedNow()`/`reportedUpdate()` even though `decode()`
+      correctly still returns `false` and `GPSnow()` stays frozen) and
+      `test_reported_update_is_consumed_on_read`.

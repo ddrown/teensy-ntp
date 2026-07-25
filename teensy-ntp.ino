@@ -217,16 +217,23 @@ static void slower_poll() {
 
 static void gps_serial_poll() {
   if(GPS_SERIAL.available()) {
-    if(gps.decode()) {
-      DateTime now = gps.GPSnow();
-      TaiNtpTime gpstime = now.ntptime();
+    bool committed = gps.decode();
+    if(gps.reportedUpdate()) {
       // Always record what the GPS module itself just reported, regardless
       // of whether the sanity check or ClockDiscipline below ends up
-      // trusting it -- a cold-start GPS module reporting *any* date (even
-      // an implausible pre-almanac one the check below rejects) is real
-      // evidence of progress the served "NTP time" field alone can't show.
+      // trusting it, and regardless of whether GPSDateTime::commit()
+      // suppressed this particular sentence as a same-pulse duplicate (or,
+      // once PPS is lost entirely, suppressed *every* subsequent sentence --
+      // see GPS.cpp) -- a cold-start GPS module reporting *any* date (even
+      // an implausible pre-almanac one the check below rejects), or one
+      // still sending NMEA after PPS has dropped out, is real evidence of
+      // progress the served "NTP time" field alone can't show.
       // See TODO.md/DONE.md, "Web UI: show the raw GPS-reported date/time".
-      webcontent.setGpsTime(gpstime);
+      webcontent.setGpsTime(gps.reportedNow().ntptime());
+    }
+    if(committed) {
+      DateTime now = gps.GPSnow();
+      TaiNtpTime gpstime = now.ntptime();
       // secondstime(), not ntptime(): ntptime() is wire-format-constrained
       // and wraps at 2036-02-07, which would eventually make this
       // comparison permanently reject every real GPS fix as "bad". See

@@ -199,6 +199,53 @@ void test_rmc_then_zda_only_first_commits() {
   TEST_ASSERT_EQUAL(21, decoded.day());
 }
 
+// Once PPS is lost, decode()'s commit() gate (committedThisPulse_) never
+// resets (it only clears on a fresh PPS pulse -- see GPS.cpp), so decode()
+// keeps returning false and GPSnow() stays frozen at the last committed
+// fix forever, even though the module may well still be sending valid
+// NMEA. reportedUpdate()/reportedNow() track those sentences independent
+// of that gate, so callers (the web UI's "GPS reported time") don't freeze
+// too. Found via bench testing with PPS physically disconnected.
+void test_reported_update_survives_pps_loss() {
+  GPSDateTime gps(&Serial);
+  const char mockMessage[]  = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
+  const char mockMessage2[] = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
+
+  firePulse(1);
+  bool committed = feed(gps, mockMessage, 5000);
+  TEST_ASSERT_TRUE(committed);
+  TEST_ASSERT_TRUE(gps.reportedUpdate()); // consumes it
+
+  // no firePulse() here -- simulates PPS having stopped entirely.
+  committed = feed(gps, mockMessage2, 9000);
+  TEST_ASSERT_FALSE(committed); // commit() suppressed, same as before this fix
+  TEST_ASSERT_TRUE(gps.reportedUpdate()); // but the raw sentence was still seen
+
+  DateTime committedTime = gps.GPSnow();
+  TEST_ASSERT_EQUAL(59, committedTime.second()); // still the first sentence's :59
+
+  DateTime reported = gps.reportedNow();
+  TEST_ASSERT_EQUAL(2019, reported.year());
+  TEST_ASSERT_EQUAL(12, reported.month());
+  TEST_ASSERT_EQUAL(17, reported.day());
+  TEST_ASSERT_EQUAL(3, reported.hour());
+  TEST_ASSERT_EQUAL(17, reported.minute());
+  TEST_ASSERT_EQUAL(0, reported.second()); // second sentence's :00, not frozen
+}
+
+// reportedUpdate() is consume-on-read: a caller that doesn't check it after
+// every decode() call must not see a stale true left over from an earlier
+// sentence.
+void test_reported_update_is_consumed_on_read() {
+  GPSDateTime gps(&Serial);
+  const char mockMessage[] = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
+
+  firePulse(1);
+  feed(gps, mockMessage, 5000);
+  TEST_ASSERT_TRUE(gps.reportedUpdate());
+  TEST_ASSERT_FALSE(gps.reportedUpdate());
+}
+
 void test_decode() {
   const char mockMessage[]  = "$GPZDA,031659.000,17,12,2019,00,00*51\r\n";
   const char mockMessage2[] = "$GPZDA,031700.000,17,12,2019,00,00*5C\r\n";
@@ -391,5 +438,7 @@ int main() {
   RUN_TEST(test_capture_resets_on_next_pulse);
   RUN_TEST(test_zda_then_rmc_only_first_commits);
   RUN_TEST(test_rmc_then_zda_only_first_commits);
+  RUN_TEST(test_reported_update_survives_pps_loss);
+  RUN_TEST(test_reported_update_is_consumed_on_read);
   return UNITY_END();
 }

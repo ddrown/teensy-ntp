@@ -291,10 +291,19 @@ bool GPSDateTime::decode() {
     validString = parity_ == checksum;
 
     if (validString) {
-      if((validCode == inZDATimeCode || validCode == inRMCTimeCode) && !committedThisPulse_) {
-        this->commit();
-        isUpdated_ = true;
-        committedThisPulse_ = true;
+      if(validCode == inZDATimeCode || validCode == inRMCTimeCode) {
+        // Distinct from the commit()/committedThisPulse_ gate just below:
+        // this fires for every checksum-valid ZDA/RMC sentence the module
+        // sends, even ones commit() suppresses as a same-pulse duplicate,
+        // and even while PPS is lost entirely (committedThisPulse_ then
+        // stays permanently true, so commit() never runs again -- see
+        // reportedNow()/reportedUpdate()).
+        reportUpdated_ = true;
+        if(!committedThisPulse_) {
+          this->commit();
+          isUpdated_ = true;
+          committedThisPulse_ = true;
+        }
       }
       // commit datetime
     }
@@ -326,4 +335,19 @@ bool GPSDateTime::decode() {
  */
 DateTime GPSDateTime::GPSnow() {
   return DateTime(this->year(), this->month(), this->day(), this->hour(), this->minute(), this->second());
+}
+
+/**
+ * Return a DateTime built from the most recently parsed, checksum-valid
+ * ZDA/RMC sentence's fields -- unlike GPSnow(), this doesn't depend on
+ * commit() having actually run for that sentence, so it keeps advancing
+ * even when commit()'s once-per-PPS-pulse gating (see decode()) suppresses
+ * a sentence, e.g. every sentence after PPS is lost.
+ * @return DateTime
+ */
+DateTime GPSDateTime::reportedNow() {
+  uint16_t hour = newTime_ / 1000000;
+  uint16_t minute = (newTime_ / 10000) % 100;
+  uint16_t second = (newTime_ / 100) % 100;
+  return DateTime(newYear_, newMonth_, newDay_, hour, minute, second);
 }
