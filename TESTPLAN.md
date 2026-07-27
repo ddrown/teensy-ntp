@@ -41,48 +41,80 @@ Know these before watching the console, not just recognize them after the fact:
 
 ## 4. GPS holdover -- disconnect PPS (not the antenna/serial)
 
-Disconnecting PPS specifically exercises the `LAG`-then-holdover path cleanly: `GPS.cpp`
-only snapshots `ppsMillis_`/`ppsCounter_` from `InputCapture` once per completed NMEA
-sentence, so with PPS gone the snapshot freezes while `capturedAt()` keeps advancing on
-each new sentence -- `ppsToGPS` grows ~1000ms/sec and blows past the 950ms threshold almost
-immediately, so `discipline.process()` never runs and never resets the holdover staleness
-timer.
+**Corrected understanding as of `data/run3`/`data/run4` bench sessions** (the paragraph below
+this originally predicted repeated `LAG` messages with `ppsToGPS` growing without bound; that
+never happened on the bench, and reading `GPS.cpp` closely explains why): `decodeType()`
+snapshots `ppsMillis_`/`ppsCounter_`/`dateMillis` *together*, all three gated on
+`pps.getCaptures()` having advanced since the last snapshot. With PPS gone, that whole gated
+block stops running, so `dateMillis` (what `capturedAt()` returns) freezes at the same instant
+as `ppsMillis_`/`ppsCounter_` -- it does **not** keep advancing on each new sentence, so
+`ppsToGPS` (their difference) stays constant, not growing. More fundamentally, `commit()`'s
+`committedThisPulse_` gate (also tied to `pps.getCaptures()`) means `decode()` stops returning
+`true` at all once PPS is lost, so `gps_serial_poll()`'s `if(committed)` branch -- the *only*
+place that calls `updateTime()`/`updateTimeCore()`, which is where the `LAG` check and
+`discipline.process()` live -- simply never runs again, for any reason, until PPS comes back.
+No `LAG` messages, growing or otherwise, and no more `D`/`L`/normal-telemetry lines either.
+Holdover detection itself is unaffected by any of this: `slower_poll()`'s `holdover.poll()` is
+driven by `millis()` directly, not by `decode()`/`commit()`, so `inHoldover`/dispersion still
+work correctly despite the GPS-parsing side being fully stuck.
 
-- [ ] Pull the PPS line; confirm serial prints repeated `LAG ...` with growing `ppsToGPS`
-- [ ] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
-      the next `slower_poll()` cycle
-- [ ] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing, `holdoverElapsedMs`
-      counting up -- leave it disconnected a couple minutes to see the dispersion actually
-      *grow*, not just flip on
-- [ ] NTP responses keep being served (D-only discipline) with the growing dispersion
-      reflected to clients (`ntpq -c rv` or equivalent)
-- [ ] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
-      passes, sample accepted, `inHoldover` clears without a clock step
-- [ ] "NTP time" in the web UI keeps advancing throughout the outage instead of freezing
-      (`WebContent` always reads `localClock`'s live time) -- the diagnostic fields
-      (`offsetHuman`/`pidD`/`dChiSq`) correctly *do* stay frozen at their last resolved values,
-      which is the accepted tradeoff, not a regression
-- [ ] "GPS reported time" stays `in sync` throughout, even while `inHoldover` is true -- NMEA
-      sentences keep decoding independent of the PPS capture snapshot, so this and "NTP time"
-      answer different questions ("is GPS still talking" vs "when did the device last trust a
-      sample")
-- [ ] "Holdover started at" shows the last accepted sample's own timestamp plus
+- [x] Pull the PPS line; confirm **no** repeated `LAG ...` messages appear (see corrected
+      understanding above -- confirmed on bench via `data/run3`, `data/run4`: serial output goes
+      completely quiet, no `LAG`/`D`/`L`/normal-telemetry lines, until PPS is reconnected)
+- [x] After `HOLDOVER_STALE_MS` (4000ms) of no accepted sample, `inHoldover` flips true on
+      the next `slower_poll()` cycle (confirmed `data/run3`)
+- [x] Web UI / JSON: `inHoldover` true, `holdoverDispersion` growing -- left disconnected
+      several minutes in both `data/run3`/`data/run4`, dispersion visibly grows, not just flips
+      on (`holdoverElapsedMs` no longer exists as a field -- replaced by `holdoverStartTime`,
+      see below)
+- [x] NTP responses keep being served (D-only discipline) with the growing dispersion
+      reflected to clients (confirmed `data/run3`: dispersion growing "on the web page and NTP
+      responses" both, sample client offset/frequency captured right before PPS returned)
+- [x] Reconnect PPS: next real pulse + next NMEA sentence gives a matching pair, lag check
+      passes, sample accepted, `inHoldover` clears without a clock step (confirmed `data/run3`:
+      offset stayed in the tens-of-microseconds range through the resync, `dChiSq` ramping up
+      from 0 is the already-verified bootstrap-buffer-reset behavior, not a step)
+- [x] "NTP time" in the web UI keeps advancing throughout the outage instead of freezing
+      (`WebContent` always reads `localClock`'s live time) -- confirmed `data/run3` ("NTP time in
+      web page is advancing"); the diagnostic fields (`offsetHuman`/`pidD`/`dChiSq`) correctly
+      *do* stay frozen at their last resolved values, which is the accepted tradeoff, not a
+      regression
+- [x] "GPS reported time" stays `in sync` throughout, even while `inHoldover` is true -- **first
+      found broken** in `data/run3` (froze, same root cause as the `LAG`/telemetry silence
+      above: `decode()` never returns `true` again once PPS is lost, and that was the only place
+      `setGpsTime()` was called from); fixed by decoupling it from `commit()`'s gate
+      (`reportedUpdate()`/`reportedNow()`, see DONE.md). **Confirmed fixed** in `data/run4`
+      ("gps reported time stayed 'in sync'" for the whole episode)
+- [x] "Holdover started at" shows the last accepted sample's own timestamp plus
       `HOLDOVER_STALE_MS` (4s), and stays *exactly* the same value across repeated polls
-      within this one episode rather than drifting
+      within this one episode rather than drifting -- `data/run4` shows the value
+      (`2026-07-25T03:50:49.000Z`); confirmed on bench to stay constant across repeated polls
+      through the episode
+- [x] Satellite signal counts (`strongSignals`/`weakSignals`/`noSignals`) do **not** grow
+      without bound over a sustained holdover -- **found broken** in `data/run4`: `weakSignals`
+      reported as 1436 after a ~5 minute holdover (same root-cause class as the GPS-reported-time
+      freeze above, but additive instead of freezing: `decodeGSV()`'s
+      `strongSignalNext`/`weakSignalNext`/`noSignalNext` only got published-and-reset inside
+      `commit()`'s gated block, so they silently accumulated every second of the outage with
+      nothing to ever reset them). Fixed by moving the publish/reset to run on every valid
+      ZDA/RMC sentence regardless of `commit()`'s gate (see DONE.md, "Satellite signal counts
+      accumulating without bound during holdover"). **Confirmed fixed**: ~4 minute holdover
+      (2026-07-27T03:38:34.000Z to 2026-07-27T03:42:38.000Z) showed no jump in satellite signal
+      counts
 
 This does **not** exercise the `D`/`L` duplicate-timestamp logic (needs fabricated NMEA
 content, not a PPS dropout) -- see section 6.
 
 ## 5. Web UI
 
-- [x] New holdover fields (`inHoldover`, `holdoverDispersion`, `holdoverElapsedMs`) update
+- [x] New holdover fields (`inHoldover`, `holdoverDispersion`, `holdoverStartTime`) update
       live and match serial/JSON
 - [x] Existing offset graph / satellite radar still render correctly (new JSON fields
       didn't break the page's JS parser)
 - [ ] "GPS reported time" shows a real (if not yet locked) date before the first-ever GPS fix,
       distinct from "NTP time" (which reads `localClock`'s live compile-time-seeded clock until
       then) -- confirms the field still serves its original cold-start-visibility purpose
-- [ ] During normal steady-state operation "GPS reported time" reads `in sync`, not a raw
+- [x] During normal steady-state operation "GPS reported time" reads `in sync`, not a raw
       timestamp, confirming the ~1s NMEA-cadence jitter doesn't look like a fault
 
 ## 6. Live NMEA-hijacker tests
@@ -105,8 +137,8 @@ Once already disciplined on real time: hold the seconds field static for one ext
 an ordinary day (not near any compiled leap-second date). Equality branch fires,
 `leapSecondStallSecond()` returns false, sample rejected.
 
-- [ ] Serial prints `D <gpstime>`
-- [ ] `ClockDiscipline`'s regression/PID state is unaffected (next real sample resumes
+- [x] Serial prints `D <gpstime>`
+- [x] `ClockDiscipline`'s regression/PID state is unaffected (next real sample resumes
       normal telemetry with no discontinuity)
 
 ### 6b. Backwards timestamp (`D`)
@@ -114,7 +146,17 @@ an ordinary day (not near any compiled leap-second date). Equality branch fires,
 Once already disciplined: emit a timestamp a few seconds earlier than the last accepted
 one.
 
-- [ ] Serial prints `D <gpstime>`, rejected unconditionally (not leap-window-dependent)
+- [x] Serial prints `D <gpstime>`, rejected unconditionally (not leap-window-dependent)
+
+**Bench note on both 6a/6b's rejection→recovery behavior:** the actual rig feeds a timestamp
+offset a fixed 30s from real time (rather than "one extra fix"/"a few seconds earlier" literally),
+which sustains the rejection long enough to trigger holdover (6d). Observed: `ClockPID`'s D-only
+holdover output was already sitting at `limit_500()`'s ±500ppm clamp (`ClockPID.cpp:126`) during
+the whole bad-timestamp run, and after reconnecting real GPS the clock kept running at that same
+500ppm clamp to correct back -- net accumulated error was only ~91ms despite the sustained
+clamped-rate excursion, not a runaway. Consistent with 6a's still-open "no discontinuity" bullet
+(the clamp is what keeps a sustained-rejection episode bounded rather than diverging), but not
+literally "no discontinuity" -- it's a bounded, clamped correction, not instantaneous.
 
 ### 6c. Leap-second stall correction (`L`) -- order-dependent, read carefully
 
