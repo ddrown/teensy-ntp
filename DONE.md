@@ -1262,3 +1262,25 @@ embedded C with a reflash cycle between iterations.
       `test-DateTime`, `test-GPS`, `test-GpsBaud`, and `test-NTPResponseFields`, all of which
       pull in `LeapSeconds.o` and now transitively need `elapsedWithin()`. All 15 host-side test
       binaries pass.
+
+- [x] **Web UI showed 1900-ish dates instead of the real date after a real Y2036 wraparound.**
+      `index_js.h`'s date-formatting spots (`gotData()`'s `time`/`gpstimeHuman`, `gpsReportedTime`/
+      `gpsReportedTimeStatus`, `holdoverStartTime`/`holdoverStartTimeHuman`) each did
+      `new Date((json.<field> - 2208988800) * 1000)` directly on the raw wire-format value, with
+      no awareness that a small value might be a *wrapped* post-2036 time rather than a literal
+      near-1900 one -- confirmed on the bench (`data/run7`/`data/run8`) rendering as
+      `(1900-01-01T00:0X:XXZ)` next to an otherwise-correct raw value. Purely a display issue, not
+      a protocol bug (the served NTP time itself was always correct; that's the wire format's own
+      inherent Y2036 limit).
+      Fixed by adding a shared `ntpToDate(ntpSeconds)` helper: computes the naive conversion first,
+      then repeatedly adds one wraparound period (2^32 seconds) while the result is still more
+      than half a wrap period in the past relative to the browser's own `Date.now()` -- the
+      browser viewing the page knows what year it actually is, so this converges on the correct
+      (most recent) wrap epoch instead of always assuming 1900. All three call sites now go
+      through this helper. No server/protocol-side change -- `WebContent`'s JSON fields are
+      unchanged, this is client-side rendering only.
+      No JS test harness exists in this repo (per `CLAUDE.md`, only the C++ side is host-tested);
+      verified the extracted logic directly via `node` instead -- confirmed the actual bench
+      values from `data/run7`/`data/run8` (34, 135, 28) now render as `2036-02-07T06:2...Z` instead
+      of `1900-01-01`, a normal current-day value is unaffected, and values at/just before the wrap
+      instant land exactly where expected.

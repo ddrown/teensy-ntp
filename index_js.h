@@ -158,6 +158,25 @@ function show_radar_sats(element, sats) {
 }
 
 const lockStates = ["n/a", "no lock", "2D", "3D"];
+const NTP_WRAP_MS = 4294967296 * 1000; // 2^32 seconds -- the wire-format wraparound period (~136.1 years)
+
+// Raw NTP wire-format seconds-since-1900 values wrap every 2^32 seconds
+// (2036-02-07 06:28:16 UTC is the first wrap) -- a small value shortly
+// after that instant is numerically indistinguishable from one shortly
+// after 1900 itself, so a plain conversion renders it as a confusing
+// "(1900-01-01T00:0X:XXZ)" next to an otherwise-correct raw value. The
+// browser showing this page knows what year it actually is, so assume the
+// most recent wrap epoch whenever the naive conversion lands more than half
+// a wrap period in the past relative to now, instead of always reading it
+// as literally near 1900. See TODO.md/DONE.md, "Web UI shows 1900-ish
+// dates...".
+function ntpToDate(ntpSeconds) {
+  let date = new Date((ntpSeconds - 2208988800) * 1000);
+  while(Date.now() - date.getTime() > NTP_WRAP_MS / 2) {
+    date = new Date(date.getTime() + NTP_WRAP_MS);
+  }
+  return date;
+}
 
 function gotData(json) {
   $.each( json, function( key, value ) {
@@ -181,7 +200,7 @@ function gotData(json) {
     $("#"+key).text(value);
   });
 
-  const time = new Date((json.gpstime-2208988800)*1000);
+  const time = ntpToDate(json.gpstime);
   $("#gpstimeHuman").text(time.toISOString());
 
   if(json.haveGpsReportedTime) {
@@ -193,7 +212,7 @@ function gotData(json) {
     if(Math.abs(json.gpstime - json.gpsReportedTime) <= 1) {
       $("#gpsReportedTimeStatus").text("in sync");
     } else {
-      const gpsReportedTime = new Date((json.gpsReportedTime-2208988800)*1000);
+      const gpsReportedTime = ntpToDate(json.gpsReportedTime);
       $("#gpsReportedTimeStatus").text(json.gpsReportedTime + " (" + gpsReportedTime.toISOString() + ")");
     }
   } else {
@@ -201,7 +220,7 @@ function gotData(json) {
   }
 
   if(json.inHoldover) {
-    const holdoverStartTime = new Date((json.holdoverStartTime-2208988800)*1000);
+    const holdoverStartTime = ntpToDate(json.holdoverStartTime);
     $("#holdoverStartTimeHuman").text(holdoverStartTime.toISOString());
   } else {
     $("#holdoverStartTimeHuman").text("n/a");
