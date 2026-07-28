@@ -111,9 +111,16 @@ content, not a PPS dropout) -- see section 6.
       live and match serial/JSON
 - [x] Existing offset graph / satellite radar still render correctly (new JSON fields
       didn't break the page's JS parser)
-- [ ] "GPS reported time" shows a real (if not yet locked) date before the first-ever GPS fix,
+- [x] "GPS reported time" shows a real (if not yet locked) date before the first-ever GPS fix,
       distinct from "NTP time" (which reads `localClock`'s live compile-time-seeded clock until
-      then) -- confirms the field still serves its original cold-start-visibility purpose
+      then) -- confirms the field still serves its original cold-start-visibility purpose.
+      Confirmed via a full power cycle of both Teensy and GPS module: "GPS reported time" showed
+      an implausible 1970s date first (module hadn't recovered its almanac yet -- this is the
+      `secondstime() < compileSecondsTime` "B" case, rejected for discipline but still shown per
+      the field's design intent), then quickly jumped to the correct date once the module picked
+      up enough almanac data to know the real time (even before it had a full position fix -- it
+      briefly showed 2 satellites in view with good signal but no position, suggesting the module
+      retained some almanac data across the power cycle)
 - [x] During normal steady-state operation "GPS reported time" reads `in sync`, not a raw
       timestamp, confirming the ~1s NMEA-cadence jitter doesn't look like a fault
 
@@ -175,8 +182,25 @@ Correct sequence:
    `clockSet` path.
 3. Repeat that identical timestamp on the next fix.
 
-- [ ] Serial prints `L <gpstime>`, stepped forward one second to `2017-01-01 00:00:00`
-- [ ] Resume real dates afterward and confirm no bad step lands in the offset telemetry
+- [x] Serial prints `L <gpstime>`, stepped forward one second to `2017-01-01 00:00:00`.
+      Confirmed via `data/run5` using `rebase_relay.py leap --leap-mode dup59 --leap-at
+      2016-12-31T23:59:59 --lead-seconds 180`: serial printed `L 3692217636` at the crossing
+      (the exact printed value trails the boundary a little due to `ClockDiscipline`'s normal
+      steady-state buffering/resolve cadence, not a bug); more directly, a real NTP client's
+      packet capture (`tcpdump`) shows the served Leap Indicator flip from `+1s` (pending) to
+      `0` (none) exactly bracketing a response with Receive Timestamp `2017-01-01T00:00:00Z` --
+      this is the first time the wire-protocol LI bit itself (not just the serial `L` message)
+      was confirmed against a real client
+- [x] Resume real dates afterward and confirm no bad step lands in the offset telemetry --
+      confirmed `data/run5`: `offsetHuman` stayed in the tens-of-microseconds range across the
+      `L` event (0.000000048 → 0.000000068 → 0.000000083), no discontinuity
+
+**Bench setup note:** this run needed `compileSecondsTime`'s "B" bad-clock sanity check
+(`gps_serial_poll()`) temporarily disabled, since a normal `__DATE__`/`__TIME__` build's compile
+time is long after 2016-12-31 -- see `mitm/README.md`'s note on this and `TODO.md`/`DONE.md` for
+how that override was done. That patch is a local, uncommitted, test-only modification to
+`teensy-ntp.ino` (hardcodes `compile` to `2016-12-30` and comments out the "B" check/`else`) --
+worth reverting before flashing anything meant for real operation.
 
 ### 6d. Sustained rejection eventually triggers holdover
 
@@ -186,11 +210,21 @@ though nothing was trusted. Confirms the fix: keep 6a's or 6b's duplicate/backwa
 injection running continuously (not just the one-shot check those sections describe) past
 `HOLDOVER_STALE_MS` (4000ms).
 
-- [ ] `inHoldover` flips true partway through the sustained `D` run, not never
-- [ ] `holdoverDispersion` grows the longer the rejection run continues
-- [ ] Left long enough, NTP responses fall back to stratum 16 (`dispersion > 0x10000`)
-- [ ] Resuming valid NMEA afterward clears holdover normally (same bar as section 4's PPS
-      reconnect check)
+- [x] `inHoldover` flips true partway through the sustained `D` run, not never. Confirmed via
+      `data/run6` using `mitm/generate.py 6a-long` (a purpose-built long-running duplicate-`D`
+      fixture) + `player.py`: serial showed a long run of repeated `D <gpstime>` lines, and the
+      web UI/JSON snapshot taken during that run read `inHoldover: yes`
+- [x] `holdoverDispersion` grows the longer the rejection run continues -- confirmed on a
+      follow-up to `data/run6` (the initial snapshot read `0.000s`, too soon after holdover
+      first tripped; a later look showed it growing)
+- [-] Left long enough, NTP responses fall back to stratum 16 (`dispersion > 0x10000`) --
+      **skipped by decision, not tested**: same underlying `growDispersion()`/threshold logic as
+      section 4's PPS-loss holdover, not specific to the sustained-`D` trigger path this section
+      covers
+- [x] Resuming valid NMEA afterward clears holdover normally (same bar as section 4's PPS
+      reconnect check) -- confirmed on the `data/run6` follow-up: offset stayed in the low
+      single-digit microseconds through the resync (no step), `dChiSq`/`ppb` ramping up from 0
+      is the already-verified bootstrap-buffer-refill behavior, not a fault
 
 ### Isolation caveat
 
@@ -203,8 +237,8 @@ buffer/PID state recovers cleanly -- it will have absorbed the fabricated jumps.
 ## 7. Y2036 wire-timestamp rollover (NMEA MITM)
 
 The 32-bit NTP wire format (`ntptime()`, seconds since 1900) wraps at **2036-02-07
-06:28:16 UTC**. Three independent things need to survive that crossing, and the hijacker can
-drive all three live instead of waiting a decade:
+06:28:16 UTC**. Four independent things need to survive that crossing, and the hijacker can
+drive all four live instead of waiting a decade:
 
 1. **`gpstime`-vs-`compileTime` sanity check** (`gps_serial_poll()`, `teensy-ntp.ino:224`).
    Before `817ce85`, this compared raw `ntptime()` values; after a real-world wrap, a
@@ -221,6 +255,12 @@ drive all three live instead of waiting a decade:
    straddling it.
 3. **`ClockDiscipline::process()`'s own monotonicity guard** (`ClockDiscipline.cpp:48`) --
    found later than the other two, via this same rebase-relay testing; see 7e.
+4. **`LeapSeconds.cpp`'s leap-offset table lookups** -- found via `data/run7`, **still open, not
+   yet fixed** (see TODO.md). `leapSecondOffsetAt()`/`leapSecondOffsetAtTai()` have no
+   wraparound handling, so the leap-second offset they return silently drops to 0 forever once
+   their input wraps -- meaning GPS samples decoded via `ntptime()` are missing their leap
+   offset (currently 37s) from that point on, permanently, not just transiently like 1-3 above.
+   Also produces a burst of `D <n>` messages right at the crossing as a side effect (see 7e).
 
 ### 7a. Seeding near the wrap instead of waiting a decade
 
@@ -240,8 +280,11 @@ clock crosses the wrap for real within minutes of bench time.
 
 ### 7b. `secondstime()` sanity check
 
-- [ ] No `B <gpstime>` message appears as the rebased clock crosses `06:28:16` -- normal
-      telemetry (the plain per-sample line) continues uninterrupted through the crossing
+- [x] No `B <gpstime>` message appears as the rebased clock crosses `06:28:16` -- normal
+      telemetry (the plain per-sample line) continues uninterrupted through the crossing.
+      Confirmed `data/run7`: no `B` lines at all, including through the later `D`-storm/holdover
+      episode (see 7e) -- this check is independent of the leap-offset bug found in that run,
+      since it compares `secondstime()`, not anything touching `LeapSeconds.cpp`
 - [ ] Optional regression proof: build `817ce85^` (the commit immediately before the
       `secondstime()` fix) and repeat -- confirm `B <gpstime>` *does* start appearing at the
       crossing and never clears, then confirm current firmware doesn't reproduce it
@@ -262,9 +305,15 @@ clock crosses the wrap for real within minutes of bench time.
 ### 7d. General sanity through the crossing
 
 - [ ] NTP responses stay correct and continuous through the crossing (query with a real
-      client and confirm the served time, not just the fact that a response arrives)
+      client and confirm the served time, not just the fact that a response arrives) --
+      **found broken** in `data/run7`: responses kept being served without interruption, but
+      built on top of GPS samples silently missing their leap offset (37s) from the crossing
+      onward -- see the new "LeapSeconds.cpp" hazard above/TODO.md. Re-test once that's fixed
 - [ ] Web UI / JSON offset and dispersion fields stay sane through the crossing -- no spikes
-      or stuck/negative values
+      or stuck/negative values -- **found broken** in `data/run7`: this is exactly what caught
+      the leap-offset bug -- `offsetHuman`/"Offset between NTP/GPS times" spiked to ~-37s and
+      `ClockPID` pinned at its -500ppm clamp for several minutes correcting (really,
+      mis-correcting) it. Re-test once TODO.md's fix lands
 
 ### 7e. `ClockDiscipline`'s own monotonicity guard
 
@@ -277,8 +326,19 @@ Once the rebased clock crossed the wrap, every subsequent real sample compared a
 bench; fixed via the same `elapsedWithin()` wraparound-safe pattern already used elsewhere
 in this section.
 
-- [ ] No `D` messages appear as the rebased clock crosses `06:28:16` -- normal per-sample
-      telemetry continues uninterrupted through the crossing, same bar as 7b
+- [x] `ClockDiscipline`'s own monotonicity guard (`b2a4027`) is not the cause of any `D`
+      messages at the crossing -- confirmed indirectly via `data/run7`: a `D <n>` storm *did*
+      appear right at the crossing, but root-caused to the separate, still-open `LeapSeconds.cpp`
+      leap-offset bug above (TODO.md), not a regression here. Mechanism: `TaiNtpTime.v` (`=
+      wireT + offset`) overflows ~37s *before* `wireT` itself does (adding the offset pushes the
+      sum past 2^32 that much earlier), so there's a window where `TaiNtpTime.v` has already
+      wrapped but the leap-offset lookup (keyed on the not-yet-wrapped `wireT`) is still correct
+      -- clean samples through here. Once `wireT` *itself* wraps, the offset silently drops to 0
+      and `TaiNtpTime.v` genuinely jumps back ~37s -- the monotonicity guard correctly rejects
+      that as an implausible backward jump (this is what `D <n>` was), exactly as designed,
+      until the now-permanently-offset sequence climbs back above the last accepted value and
+      gets waved through as an ordinary +1s step. Re-test for a clean crossing (no `D` at all)
+      once TODO.md's `LeapSeconds.cpp` fix lands
 
 ## 8. Leap-second table currency
 
