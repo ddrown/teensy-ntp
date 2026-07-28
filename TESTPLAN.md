@@ -261,8 +261,8 @@ drive all four live instead of waiting a decade:
    `ntptime()` were missing their leap offset (37s) from that point on, permanently, not just
    transiently like 1-3 above. Also produced a burst of `D <n>` messages right at the crossing as
    a side effect (see 7e). **Fixed** (unit-test-driven, see DONE.md) via the same
-   `elapsedWithin()` pattern as 1-3 -- **bench re-verification against real hardware still
-   pending**, see 7b/7d/7e below.
+   `elapsedWithin()` pattern as 1-3 -- **confirmed on real hardware** via `data/run8`, see
+   7d/7e below.
 
 ### 7a. Seeding near the wrap instead of waiting a decade
 
@@ -287,7 +287,7 @@ clock crosses the wrap for real within minutes of bench time.
       Confirmed `data/run7`: no `B` lines at all, including through the later `D`-storm/holdover
       episode (see 7e) -- this check is independent of the leap-offset bug found in that run,
       since it compares `secondstime()`, not anything touching `LeapSeconds.cpp`
-- [ ] Optional regression proof: build `817ce85^` (the commit immediately before the
+- [-] Optional regression proof: build `817ce85^` (the commit immediately before the
       `secondstime()` fix) and repeat -- confirm `B <gpstime>` *does* start appearing at the
       crossing and never clears, then confirm current firmware doesn't reproduce it
 
@@ -297,26 +297,28 @@ clock crosses the wrap for real within minutes of bench time.
    client on the bench (`ntpdate -q`, `chronyd -q`, or similar) so it registers in
    `NTPClients` with an `rx_s` just before the wrap
 2. Let the rebased clock cross the wrap without that client sending anything else
-3. - [ ] Confirm (via `WebContent`/serial, or by querying again) that client is **not**
+3. - [-] Confirm (via `WebContent`/serial, or by querying again) that client is **not**
         expired immediately after the crossing -- it should stay registered until ~4096s
         of (rebased) device time have actually elapsed since its `rx_s`, not be treated as
         either instantly stale or permanently fresh by the wrap
-4. - [ ] Let rebased time continue past that 4096s window without further requests from
+4. - [-] Let rebased time continue past that 4096s window without further requests from
         that client and confirm it **does** eventually expire normally
 
 ### 7d. General sanity through the crossing
 
-- [ ] NTP responses stay correct and continuous through the crossing (query with a real
+- [x] NTP responses stay correct and continuous through the crossing (query with a real
       client and confirm the served time, not just the fact that a response arrives) --
       **found broken** in `data/run7`: responses kept being served without interruption, but
       built on top of GPS samples silently missing their leap offset (37s) from the crossing
-      onward -- see the "LeapSeconds.cpp" hazard above. **Fixed in code** (see DONE.md); needs a
-      fresh `data/run7`-style bench run to confirm
-- [ ] Web UI / JSON offset and dispersion fields stay sane through the crossing -- no spikes
+      onward -- see the "LeapSeconds.cpp" hazard above. **Fixed, confirmed** via `data/run8`:
+      "GPS reported time" stayed `in sync` on both sides of the crossing, serial telemetry
+      continued smoothly with no gap
+- [x] Web UI / JSON offset and dispersion fields stay sane through the crossing -- no spikes
       or stuck/negative values -- **found broken** in `data/run7`: this is exactly what caught
       the leap-offset bug -- `offsetHuman`/"Offset between NTP/GPS times" spiked to ~-37s and
       `ClockPID` pinned at its -500ppm clamp for several minutes correcting (really,
-      mis-correcting) it. **Fixed in code** (see DONE.md); needs a fresh bench run to confirm
+      mis-correcting) it. **Fixed, confirmed** via `data/run8`: `offsetHuman` stayed in the
+      single-digit-microseconds range through the entire crossing, no spike at all
 
 ### 7e. `ClockDiscipline`'s own monotonicity guard
 
@@ -340,8 +342,10 @@ in this section.
       and `TaiNtpTime.v` genuinely jumps back ~37s -- the monotonicity guard correctly rejects
       that as an implausible backward jump (this is what `D <n>` was), exactly as designed,
       until the now-permanently-offset sequence climbs back above the last accepted value and
-      gets waved through as an ordinary +1s step. Re-test for a clean crossing (no `D` at all)
-      once TODO.md's `LeapSeconds.cpp` fix lands
+      gets waved through as an ordinary +1s step.
+- [x] Clean crossing with the `LeapSeconds.cpp` fix in place: no `D` messages at all. Confirmed
+      via `data/run8` -- serial telemetry crosses `4294967292` → `0` → `4` → `6`... smoothly, with
+      no rejected samples and no offset spike, unlike `data/run7`'s pre-fix `D <n>` storm
 
 ## 8. Leap-second table currency
 
