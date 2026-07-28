@@ -1,4 +1,5 @@
 #include "LeapSeconds.h"
+#include "Elapsed.h"
 
 // Historical leap seconds, in the same format as IERS/NIST's
 // `leap-seconds.list`: NTP timestamp (seconds since 1900) at which the
@@ -44,9 +45,21 @@ const uint8_t leapSecondsCount = sizeof(leapSeconds) / sizeof(leapSeconds[0]);
 // *last* one whose effectiveNtpTime is <= ntpTime -- scan from the end and
 // return on the first match instead of scanning forward and having to
 // remember the most recent qualifying entry seen so far.
+//
+// "<=" has to be wraparound-safe (elapsedWithin(), not plain comparison):
+// ntpTime is real NTP wire-format seconds since 1900, which wraps at
+// 2036-02-07 06:28:16 UTC (2^32 seconds). A plain `<=` would see a wrapped
+// post-2036 ntpTime as numerically smaller than every table entry and
+// silently return 0 (the "before any entry" default) instead of the real
+// cumulative offset -- permanently, since the wrapped domain won't reach
+// the table's range again for ~136 years. Found via bench testing
+// (data/run7); see TODO.md/DONE.md. The 0x7fffffff window matches the one
+// already used for this same wraparound elsewhere (ClockDiscipline's
+// monotonicity guard, NTPClients::expireClients()).
 int8_t leapSecondOffsetAt(WireNtpTime ntpTime) {
   for (int i = leapSecondsCount - 1; i >= 0; i--) {
-    if (leapSeconds[i].effectiveNtpTime.v <= ntpTime.v) {
+    uint32_t gap;
+    if (elapsedWithin(ntpTime.v, leapSeconds[i].effectiveNtpTime.v, 0x7fffffff, &gap)) {
       return leapSeconds[i].cumulativeOffset;
     }
   }
@@ -81,11 +94,14 @@ bool leapSecondStallSecond(WireNtpTime ntpTime, LeapSecondType *type) {
   return false;
 }
 
+// Same wraparound hazard and fix as leapSecondOffsetAt() above, against
+// taiTime.v instead -- see there.
 int8_t leapSecondOffsetAtTai(TaiNtpTime taiTime, bool *isLeapInstant) {
   int matchIndex = -1;
   for (int i = leapSecondsCount - 1; i >= 0; i--) {
     uint32_t taiBoundary = leapSeconds[i].effectiveNtpTime.v + leapSeconds[i].cumulativeOffset;
-    if (taiBoundary <= taiTime.v) {
+    uint32_t gap;
+    if (elapsedWithin(taiTime.v, taiBoundary, 0x7fffffff, &gap)) {
       matchIndex = i;
       break;
     }

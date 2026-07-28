@@ -1209,3 +1209,56 @@ embedded C with a reflash cycle between iterations.
       `test-GPS.cpp` gained `test_satellite_counts_reset_each_cycle_during_pps_loss`: feeds the same
       GSV+ZDA cycle twice with only one `firePulse()` call (simulating PPS staying lost across both),
       and asserts the second cycle's counts match the first cycle's alone, not the two summed.
+
+## Y2036 leap-second offset lookup breaks permanently after the wire-timestamp wrap
+
+- [x] **`LeapSeconds.cpp`'s `leapSecondOffsetAt(WireNtpTime)`/`leapSecondOffsetAtTai(TaiNtpTime)`
+      did a plain `<=`/`taiBoundary <= taiTime.v` linear scan against the table with no
+      wraparound handling** -- unlike `ClockDiscipline`'s monotonicity guard,
+      `NTPClients::expireClients()`, and the `gpstime`-vs-`compileTime` sanity check, which all
+      got the `elapsedWithin()` treatment for this same 2036-02-07 06:28:16 UTC wire-domain
+      wraparound. `DateTime::ntptime()`'s internal `leapOffsetFor()` recomputes the same
+      wire-domain value and feeds it straight into `leapSecondOffsetAt()`; once that value wraps
+      to a small number, every table entry (all in the billions) looked larger than it, the scan
+      found no match, and the function silently returned 0 instead of the real cumulative offset
+      (37, as of the current table) -- **permanently**, since the wrapped domain won't reach the
+      table's range again for ~136 years.
+      Found via bench testing (`data/run7`, `rebase_relay.py wrap`): `ClockDiscipline` saw a
+      genuine (but bogus, offset-caused) ~-37s jump right after the wrap, pinned `ClockPID` at its
+      -500ppm clamp, and spent several minutes clawing `localClock` down by 37 real seconds to
+      match the now-permanently-wrong GPS samples -- not correcting anything, just losing time.
+      Also explains a subtlety in that same bench run: `TaiNtpTime.v` (`= wireT + offset`)
+      overflows ~37s *before* `wireT` itself does (adding the offset pushes the sum past 2^32
+      that much earlier), so there's a window right at the crossing where `TaiNtpTime.v` has
+      already wrapped but the (not-yet-buggy) offset lookup on the not-yet-wrapped `wireT` is
+      still correct -- clean samples cycle through 0..36 here. Only once `wireT` itself wraps does
+      the bug trigger, and `TaiNtpTime.v` (now computed with the wrong offset) genuinely jumps
+      back ~37s -- correctly rejected by `ClockDiscipline`'s monotonicity guard as an implausible
+      backward jump (the `D <n>` storm observed in that run), not a regression in that guard's own
+      wraparound fix (`b2a4027`).
+      **Test-driven fix**: added `test_offset_wraps_around_y2036_correctly`/
+      `test_offset_at_tai_wraps_around_y2036_correctly` to `test-LeapSeconds.cpp` first (using
+      `34`, the actual wrapped value observed on the bench), confirmed both failed
+      (`Expected 37 Was 0`) against the unfixed code, then fixed `leapSecondOffsetAt()`/
+      `leapSecondOffsetAtTai()` to scan via `elapsedWithin(ntpTime.v/taiTime.v, entry, 0x7fffffff,
+      &gap)` instead of plain `<=` -- the same window already used for this exact wraparound
+      elsewhere. All existing tests in that file (including the "holds forever after the last
+      entry" and TAI-domain boundary/leap-instant cases) still pass unchanged.
+      One pre-existing test in `test-NTPClients.cpp`
+      (`test_expireClients_survives_wire_domain_wrap`) relied on the *old* bug as a simplification
+      -- it deliberately used tiny `TaiNtpTime`/`WireNtpTime` values assuming they'd read as
+      "before 1972" (offset 0) to sidestep leap-second conversion entirely. With the fix, a small
+      `TaiNtpTime` now correctly reads as "shortly after the 2036 wrap" (offset 37) instead, so
+      that test's chosen numbers no longer meant what its comment said. Updated it to use
+      `TaiNtpTime(40)` (still small, but now consistently "3 wire-seconds after the wrap" once
+      converted) with `wireRx` adjusted to match, preserving its actual intent (verify
+      `NTPClients::expireClients()`'s own wraparound-safe comparison, independent of leap-second
+      conversion).
+      `leapSecondPendingToday()` has the same non-wraparound-safe pattern but much lower practical
+      stakes (only matters if a leap second is scheduled exactly at/near a future wraparound, not
+      "forever after") -- left open, see TODO.md. `leapSecondStallSecond()` uses pure equality
+      comparison and was already wraparound-safe; no change needed.
+      `test/Makefile` gained `Elapsed.o` as a link dependency for `test-LeapSeconds`,
+      `test-DateTime`, `test-GPS`, `test-GpsBaud`, and `test-NTPResponseFields`, all of which
+      pull in `LeapSeconds.o` and now transitively need `elapsedWithin()`. All 15 host-side test
+      binaries pass.

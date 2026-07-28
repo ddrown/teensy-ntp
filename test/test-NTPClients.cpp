@@ -180,13 +180,18 @@ void test_expireClients_survives_wire_domain_wrap() {
   NTPClients clients;
   ip4_addr_t fresh = addr(1);
 
-  // Both values are tiny (well before 1972, the first LeapSeconds table
-  // entry), so the TAI/wire leap offset here is 0 and taiNow == wireNow --
-  // this test is purely about the raw 32-bit arithmetic wraparound, not the
-  // leap-second conversion (covered separately above).
-  uint32_t wireNow = 5; // just past the wire-domain wrap
-  uint32_t wireRx = 0xFFFFFFFFUL - 4; // 10s before the wrap -- fresh either way
-  TaiNtpTime taiNow(wireNow);
+  // taiNow=40 is a small TaiNtpTime value -- LeapSeconds.cpp's lookup is
+  // itself wraparound-safe now (see TODO.md/DONE.md), so a small value here
+  // correctly reads as "shortly after the real 2036-02-07 wrap" (37s offset
+  // applies) rather than aliasing to "before 1972" (offset 0). That makes
+  // taiToWireNtp(taiNow) come out to a small *wire* value too (3), which is
+  // what this test actually needs: wireRx below is chosen to be a handful
+  // of wire-seconds before that, i.e. just before the wire-domain's own
+  // wrap -- fresh either way, since this test is about
+  // NTPClients::expireClients()'s own wraparound-safe elapsedWithin()
+  // comparison, not the leap-second conversion.
+  uint32_t wireRx = 0xFFFFFFFFUL - 4; // a few wire-seconds before taiNow's wire equivalent
+  TaiNtpTime taiNow(40);
   localClock.setTime(0, taiNow);
   When(Method(ArduinoFake(), micros)).Return(0);
 

@@ -255,12 +255,14 @@ drive all four live instead of waiting a decade:
    straddling it.
 3. **`ClockDiscipline::process()`'s own monotonicity guard** (`ClockDiscipline.cpp:48`) --
    found later than the other two, via this same rebase-relay testing; see 7e.
-4. **`LeapSeconds.cpp`'s leap-offset table lookups** -- found via `data/run7`, **still open, not
-   yet fixed** (see TODO.md). `leapSecondOffsetAt()`/`leapSecondOffsetAtTai()` have no
-   wraparound handling, so the leap-second offset they return silently drops to 0 forever once
-   their input wraps -- meaning GPS samples decoded via `ntptime()` are missing their leap
-   offset (currently 37s) from that point on, permanently, not just transiently like 1-3 above.
-   Also produces a burst of `D <n>` messages right at the crossing as a side effect (see 7e).
+4. **`LeapSeconds.cpp`'s leap-offset table lookups** -- found via `data/run7`; `leapSecondOffsetAt()`/
+   `leapSecondOffsetAtTai()` had no wraparound handling, so the leap-second offset they returned
+   silently dropped to 0 forever once their input wrapped -- meaning GPS samples decoded via
+   `ntptime()` were missing their leap offset (37s) from that point on, permanently, not just
+   transiently like 1-3 above. Also produced a burst of `D <n>` messages right at the crossing as
+   a side effect (see 7e). **Fixed** (unit-test-driven, see DONE.md) via the same
+   `elapsedWithin()` pattern as 1-3 -- **bench re-verification against real hardware still
+   pending**, see 7b/7d/7e below.
 
 ### 7a. Seeding near the wrap instead of waiting a decade
 
@@ -308,12 +310,13 @@ clock crosses the wrap for real within minutes of bench time.
       client and confirm the served time, not just the fact that a response arrives) --
       **found broken** in `data/run7`: responses kept being served without interruption, but
       built on top of GPS samples silently missing their leap offset (37s) from the crossing
-      onward -- see the new "LeapSeconds.cpp" hazard above/TODO.md. Re-test once that's fixed
+      onward -- see the "LeapSeconds.cpp" hazard above. **Fixed in code** (see DONE.md); needs a
+      fresh `data/run7`-style bench run to confirm
 - [ ] Web UI / JSON offset and dispersion fields stay sane through the crossing -- no spikes
       or stuck/negative values -- **found broken** in `data/run7`: this is exactly what caught
       the leap-offset bug -- `offsetHuman`/"Offset between NTP/GPS times" spiked to ~-37s and
       `ClockPID` pinned at its -500ppm clamp for several minutes correcting (really,
-      mis-correcting) it. Re-test once TODO.md's fix lands
+      mis-correcting) it. **Fixed in code** (see DONE.md); needs a fresh bench run to confirm
 
 ### 7e. `ClockDiscipline`'s own monotonicity guard
 
@@ -328,8 +331,8 @@ in this section.
 
 - [x] `ClockDiscipline`'s own monotonicity guard (`b2a4027`) is not the cause of any `D`
       messages at the crossing -- confirmed indirectly via `data/run7`: a `D <n>` storm *did*
-      appear right at the crossing, but root-caused to the separate, still-open `LeapSeconds.cpp`
-      leap-offset bug above (TODO.md), not a regression here. Mechanism: `TaiNtpTime.v` (`=
+      appear right at the crossing, but root-caused to the separate `LeapSeconds.cpp` leap-offset
+      bug above (now fixed, see DONE.md), not a regression here. Mechanism: `TaiNtpTime.v` (`=
       wireT + offset`) overflows ~37s *before* `wireT` itself does (adding the offset pushes the
       sum past 2^32 that much earlier), so there's a window where `TaiNtpTime.v` has already
       wrapped but the leap-offset lookup (keyed on the not-yet-wrapped `wireT`) is still correct

@@ -36,6 +36,24 @@ void test_offset_at_last_table_entry_holds_forever_after() {
   TEST_ASSERT_EQUAL(37, leapSecondOffsetAt(WireNtpTime(3692217600UL + 100000000UL)));
 }
 
+// Y2036 wraparound: leapSecondOffsetAt()/leapSecondOffsetAtTai() used to do
+// a plain `<=`/`taiBoundary <= taiTime.v` linear scan with no wraparound
+// handling. Once the input wraps past 2^32 (2036-02-07 06:28:16 UTC), every
+// table entry numerically looks larger than it, so the naive scan finds no
+// match and silently returns 0 instead of the real cumulative offset --
+// permanently, since the wrapped value won't reach the table's range again
+// for ~136 years. 34 is the actual wrapped value observed on the bench
+// (data/run7) a few seconds after a real Y2036 crossing.
+void test_offset_wraps_around_y2036_correctly() {
+  TEST_ASSERT_EQUAL(37, leapSecondOffsetAt(WireNtpTime(34)));
+}
+
+void test_offset_at_tai_wraps_around_y2036_correctly() {
+  bool isLeapInstant;
+  TEST_ASSERT_EQUAL(37, leapSecondOffsetAtTai(TaiNtpTime(34), &isLeapInstant));
+  TEST_ASSERT_FALSE(isLeapInstant);
+}
+
 void test_pending_today_false_well_before_any_entry() {
   LeapSecondType type;
   TEST_ASSERT_FALSE(leapSecondPendingToday(WireNtpTime(3692217600UL - 200000), &type));
@@ -148,6 +166,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_offset_at_exact_boundary_is_new_value);
   RUN_TEST(test_offset_one_second_before_boundary_is_old_value);
   RUN_TEST(test_offset_at_last_table_entry_holds_forever_after);
+  RUN_TEST(test_offset_wraps_around_y2036_correctly);
+  RUN_TEST(test_offset_at_tai_wraps_around_y2036_correctly);
   RUN_TEST(test_pending_today_false_well_before_any_entry);
   RUN_TEST(test_pending_today_true_at_start_of_leap_second_day);
   RUN_TEST(test_pending_today_true_at_last_second_of_leap_second_day);
