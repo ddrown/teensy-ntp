@@ -31,6 +31,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 SCENARIO_NOTES = {
     "6a": "# scenario 6a (spurious duplicate D): play against an ALREADY-SYNCED device.\n",
+    "6a-long": "# scenario 6a (spurious duplicate D): play against an ALREADY-SYNCED device.\n",
     "6b": "# scenario 6b (backwards D): play against an ALREADY-SYNCED device.\n",
     "6c": "# scenario 6c (leap-second stall L): POWER-CYCLE the Teensy immediately\n"
           "# before playing this fixture -- the first group must take the\n"
@@ -49,6 +50,19 @@ def write_fixture(name, groups):
             for sentence in group:
                 f.write(sentence + "\n")
     print(f"wrote {path} ({len(groups)} groups)")
+
+
+def scenario_6along(sentence_type, start):
+    """Spurious duplicate D: hold the seconds field static for one extra
+    fix on an ordinary day, surrounded by normal fixes so the D is clearly
+    isolated and telemetry can be checked before/after."""
+    times = [
+        start + timedelta(seconds=i) for i in range(0,20)
+    ]
+    # simulate time getting stuck
+    for i in range(0,20):
+        times.append(times[-1])
+    return [nmea.fix_group(t, sentence_type) for t in times]
 
 
 def scenario_6a(sentence_type, start):
@@ -99,7 +113,7 @@ def scenario_6c(sentence_type):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("scenario", choices=["6a", "6b", "6c"])
+    ap.add_argument("scenario", choices=["6a", "6b", "6c", "6a-long"])
     ap.add_argument("--sentence-type", choices=["zda", "rmc"], default="zda",
                      help="match whichever this GPS module actually emits (default: zda)")
     ap.add_argument("--start", type=datetime.fromisoformat,
@@ -107,9 +121,14 @@ def main():
                           "to leave time to start the player)")
     args = ap.parse_args()
 
-    if args.scenario in ("6a", "6b"):
+    if args.scenario in ("6a", "6b", "6a-long"):
         start = args.start or (datetime.now(timezone.utc) + timedelta(seconds=30))
-        builder = scenario_6a if args.scenario == "6a" else scenario_6b
+        if args.scenario == "6a":
+            builder = scenario_6a
+        elif args.scenario == "6b":
+            builder = scenario_6b
+        else:
+            builder = scenario_6along
         groups = builder(args.sentence_type, start)
     else:
         groups = scenario_6c(args.sentence_type)
